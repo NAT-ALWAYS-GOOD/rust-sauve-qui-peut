@@ -1,3 +1,6 @@
 *.drawio
 *.xcf
 *.bkp
+.idea
+worker/target
+.DS_Store
