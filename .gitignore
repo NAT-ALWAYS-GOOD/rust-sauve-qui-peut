@@ -4,3 +4,4 @@
 .idea
 worker/target
 .DS_Store
+common/target

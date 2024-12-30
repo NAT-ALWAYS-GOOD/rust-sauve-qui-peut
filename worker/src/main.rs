@@ -1,74 +1,21 @@
-use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
-use serde::{Deserialize, Serialize};
+use common::{ClientRequest, ServerResponse, RegisterTeamResult, SubscribePlayerResult, send_encoded_message, receive_encoded_message};
 
-// Définition des types et des messages
-#[derive(Serialize, Deserialize, Debug)]
-enum ClientRequest {
-    RegisterTeam { name: String },
-    SubscribePlayer { name: String, registration_token: String },
-}
 
-#[derive(Serialize, Deserialize, Debug)]
-enum ServerResponse {
-    RegisterTeamResult(RegisterTeamResult),
-    SubscribePlayerResult(SubscribePlayerResult),
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-enum RegisterTeamResult {
-    Ok { expected_players: u8, registration_token: String },
-    Err(RegistrationError),
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-enum SubscribePlayerResult {
-    Ok,
-    Err(RegistrationError),
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-enum RegistrationError {
-    AlreadyRegistered,
-    InvalidName,
-    InvalidRegistrationToken,
-    TooManyPlayers,
-}
-
-// Fonction utilitaire pour envoyer des logs au canal
 fn send_log(tx: &mpsc::Sender<String>, tag: &str, message: &str) {
     tx.send(format!("[{}] : {}", tag, message)).unwrap();
 }
 
-// Envoi d'un message encodé au serveur
-fn send_encoded_message(stream: &mut TcpStream, client_request: &ClientRequest) {
-    let json_message = serde_json::to_vec(client_request).unwrap();
-    let mut message = Vec::new();
-    message.extend((json_message.len() as u32).to_le_bytes());
-    message.extend(json_message);
-
-    if let Err(e) = stream.write_all(&message) {
-        eprintln!("Erreur lors de l'envoi du message : {}", e);
-    }
-}
-
-// Réception d'un message encodé du serveur
-fn receive_encoded_message(tcp_stream: &mut TcpStream) -> ServerResponse {
-    let mut buffer = [0u8; 4];
-    tcp_stream.read_exact(&mut buffer).unwrap();
-    let message_size = u32::from_le_bytes(buffer) as usize;
-
-    let mut buffer = vec![0u8; message_size];
-    tcp_stream.read_exact(&mut buffer).unwrap();
-
-    serde_json::from_slice(&buffer).unwrap()
+fn struct_to_json_bytes(client_request: &ClientRequest) -> Vec<u8> {
+    serde_json::to_vec(client_request).unwrap()
 }
 
 // Enregistrement d'une équipe
 fn register_team(tx: &mpsc::Sender<String>, server_address: &str) -> Option<String> {
+    println!("Tentative de connexion au serveur {} pour l'équipe...", server_address);
     let team_tag = "Équipe";
     match TcpStream::connect(server_address) {
         Ok(mut stream) => {
@@ -78,7 +25,8 @@ fn register_team(tx: &mpsc::Sender<String>, server_address: &str) -> Option<Stri
             let register_team = ClientRequest::RegisterTeam { name: team_name };
 
             send_log(tx, team_tag, &format!("Envoi de l'enregistrement de l'équipe : {:?}", register_team));
-            send_encoded_message(&mut stream, &register_team);
+            let json_message = serde_json::to_vec(&register_team).unwrap();
+            send_encoded_message(&mut stream, json_message);
 
             send_log(tx, team_tag, "Attente de la réponse du serveur pour l'équipe");
             match receive_encoded_message(&mut stream) {
@@ -113,77 +61,92 @@ fn register_team(tx: &mpsc::Sender<String>, server_address: &str) -> Option<Stri
     }
 }
 
-// Enregistrement d'un joueur dans un thread
-fn register_player(tx: mpsc::Sender<String>, player_name: String, reg_token: String, server_address: String) {
+fn register_player(tx: &mpsc::Sender<String>, player_name: &str, reg_token: &str, tcp_stream: &mut TcpStream) -> bool {
     let player_tag = &player_name;
-    match TcpStream::connect(&server_address) {
-        Ok(mut stream) => {
-            send_log(&tx, player_tag, "Connecté au serveur");
 
-            let subscribe_player = ClientRequest::SubscribePlayer {
-                name: player_name.clone(),
-                registration_token: reg_token,
-            };
+    let subscribe_player = ClientRequest::SubscribePlayer {
+        name: String::from(player_name),
+        registration_token: String::from(reg_token),
+    };
 
-            send_log(&tx, player_tag, &format!("Envoi de l'enregistrement du joueur : {:?}", subscribe_player));
-            send_encoded_message(&mut stream, &subscribe_player);
+    send_log(tx, player_tag, &format!("Envoi de l'enregistrement du joueur : {:?}", subscribe_player));
+    let json_message = serde_json::to_vec(&subscribe_player).unwrap();
+    send_encoded_message(tcp_stream, json_message);
 
-            send_log(&tx, player_tag, "Attente de la réponse du serveur");
-            match receive_encoded_message(&mut stream) {
-                ServerResponse::SubscribePlayerResult(SubscribePlayerResult::Ok) => {
-                    send_log(&tx, player_tag, "Enregistrement réussi");
-                }
-                ServerResponse::SubscribePlayerResult(SubscribePlayerResult::Err(error)) => {
-                    send_log(&tx, player_tag, &format!("Erreur lors de l'enregistrement : {:?}", error));
-                }
-                _ => {
-                    send_log(&tx, player_tag, "Message inattendu reçu lors de l'enregistrement");
-                }
-            }
+    send_log(tx, player_tag, "Attente de la réponse du serveur");
+    match receive_encoded_message(tcp_stream) {
+        ServerResponse::SubscribePlayerResult(SubscribePlayerResult::Ok) => {
+            send_log(tx, player_tag, "Enregistrement réussi");
+            true
         }
-        Err(e) => {
-            send_log(&tx, player_tag, &format!("Impossible de se connecter au serveur : {}", e));
+        ServerResponse::SubscribePlayerResult(SubscribePlayerResult::Err(error)) => {
+            send_log(tx, player_tag, &format!("Erreur lors de l'enregistrement : {:?}", error));
+            false
+        }
+        _ => {
+            send_log(tx, player_tag, "Message inattendu reçu lors de l'enregistrement");
+            false
         }
     }
+
 }
 
 fn main() {
-    let server_address = "[::1]:8778";
+    // let server_address = "[::1]:8778";
+    let server_address = "localhost:8778";
 
     println!("Démarrage du client...");
     thread::sleep(Duration::from_secs(2));
     println!("Connexion au serveur...");
     thread::sleep(Duration::from_secs(2));
 
-    let (tx, rx) = mpsc::channel();
+    let (log_channel_sender, log_channel_receiver) = mpsc::channel();
 
     // Enregistrement de l'équipe
-    let reg_token = match register_team(&tx, server_address) {
+    let reg_token = match register_team(&log_channel_sender, server_address) {
         Some(token) => token,
         None => {
-            println!("Impossible d'enregistrer l'équipe. Fin du programme.");
+            println!("Impossible d'enregistrer l'équipe.");
+            println!("{}", log_channel_receiver.recv().unwrap());
             return;
         }
     };
 
     // Enregistrement des joueurs
-    let players = vec!["Joueur 1".to_string(), "Joueur 2".to_string(), "Joueur 3".to_string()];
+    let players = vec!["Joueur 1", "Joueur 2", "Joueur 3"];
     let mut threads = vec![];
 
     for player in players {
-        let tx_clone = tx.clone();
-        let reg_token_clone = reg_token.clone();
-        let server_address_clone = server_address.to_string();
+        let tx_clone = log_channel_sender.clone();
+        let reg_token_cloned = reg_token.clone();
 
         let thread = thread::spawn(move || {
-            register_player(tx_clone, player, reg_token_clone, server_address_clone);
+            match TcpStream::connect(&server_address) {
+                Ok(mut stream) => {
+                    send_log(&tx_clone, player, "Connecté au serveur");
+                    let registered = register_player(&tx_clone, player, &*reg_token_cloned, &mut stream);
+                    if !registered {
+                        // terminer le thread
+                        send_log(&tx_clone, &*player, "Erreur d'enregistrement, arrêt du thread.");
+                        return;
+                    } else {
+                        // continuer le thread
+                        // recevoir le packet suivant
+
+                    }
+                },
+                Err(e) => {
+                    send_log(&tx_clone, &*player, &format!("Impossible de se connecter au serveur : {}", e));
+                }
+            }
+
         });
 
         threads.push(thread);
     }
 
     // Affichage des logs dans le thread principal
-    for message in rx {
+    for message in log_channel_receiver {
         println!("{}", message);
     }
 
