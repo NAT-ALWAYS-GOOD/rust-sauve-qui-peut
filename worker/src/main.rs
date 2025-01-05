@@ -7,7 +7,6 @@ use std::time::Duration;
 use common::{ClientRequest, ServerResponse, RegisterTeamResult, SubscribePlayerResult, send_encoded_message, receive_encoded_message};
 
 
-
 fn send_log(channel_sender: &Sender<String>, tag: &str, message: &str) {
     channel_sender.send(format!("[{}] : {}", tag, message)).unwrap();
 }
@@ -59,7 +58,7 @@ fn register_team(channel_sender: &Sender<String>, server_address: &str) -> Optio
     }
 }
 
-fn decode_chelou64(input: &str) -> Result<Vec<u8>, String> {
+fn decode_chelou64(input: &str, debug: bool) -> Result<Vec<u8>, String> {
     let len = input.len();
 
     if len % 4 == 1 {
@@ -120,7 +119,13 @@ fn decode_chelou64(input: &str) -> Result<Vec<u8>, String> {
     Ok(output)
 }
 
-fn decode_radar_data(decoded: &[u8]) -> Result<String, String> {
+fn push_str_debug(output: &mut String, debug: bool, message: &str) {
+    if debug {
+        output.push_str(message);
+    }
+}
+
+fn decode_radar_data(decoded: &[u8], debug: bool, player: String) -> Result<String, String> {
     if decoded.len() != 11 {
         return Err(format!(
             "Données incorrectes : {} octets reçus au lieu de 11",
@@ -131,37 +136,37 @@ fn decode_radar_data(decoded: &[u8]) -> Result<String, String> {
     let mut output = String::new();
 
     // Affichage des données brutes
-    output.push_str("\n=== Données brutes (6 premiers octets) ===\n");
+    push_str_debug(&mut output, debug, "=== Données brutes (6 premiers octets) ===\n");
     for i in 0..6 {
-        output.push_str(&format!("{:08b} ", decoded[i]));
+        push_str_debug(&mut output, debug, &format!("{:08b} ", decoded[i]));
     }
-    output.push_str("\n=== Données brutes (5 derniers octets) ===\n");
+    push_str_debug(&mut output, debug, "\n=== Données brutes (5 derniers octets) ===\n");
     for i in 6..11 {
-        output.push_str(&format!("{:02X} ", decoded[i]));
+        push_str_debug(&mut output, debug, &format!("{:02X} ", decoded[i]));
     }
-    output.push_str("\n");
+    push_str_debug(&mut output, debug, "\n");
 
     let horiz_be = [decoded[0], decoded[1], decoded[2], 0];
     let horiz_bits = u32::from_le_bytes(horiz_be);
-    output.push_str(&format!("Bits horizontaux (little-endian) : {:032b}\n", horiz_bits));
+    push_str_debug(&mut output, debug, &format!("Bits horizontaux (little-endian) : {:032b}\n", horiz_bits));
 
     let mut horizontal_passages = Vec::with_capacity(12);
     for i in 0..12 {
         let shift = 24 - 2 * (i + 1); // Calculer la position des 2 bits à extraire
         let two_bits = (horiz_bits >> shift) & 0b11; // Extraire les 2 bits
-        output.push_str(&format!("\nPassage '-' {} : {:b}", i + 1, two_bits as u8));
+        push_str_debug(&mut output, debug, &format!("\nPassage '-' {} : {:b}", i + 1, two_bits as u8));
         horizontal_passages.push(two_bits as u8);
     }
 
     let vert_be = [decoded[3], decoded[4], decoded[5], 0];
     let vert_bits = u32::from_le_bytes(vert_be);
-    output.push_str(&format!("\nBits verticaux (little-endian) : {:032b}\n", vert_bits));
+    push_str_debug(&mut output, debug, &format!("Bits verticaux (little-endian) : {:032b}\n", vert_bits));
 
     let mut vertical_passages = Vec::with_capacity(12);
     for i in 0..12 {
         let shift = 24 - 2 * (i + 1);
         let two_bits = (vert_bits >> shift) & 0b11;
-        output.push_str(&format!("\nPassage '|' {} : {:b}", i + 1, two_bits as u8));
+        push_str_debug(&mut output, debug, &format!("\nPassage '|' {} : {:b}", i + 1, two_bits as u8));
         vertical_passages.push(two_bits as u8);
     }
 
@@ -171,7 +176,7 @@ fn decode_radar_data(decoded: &[u8]) -> Result<String, String> {
         decoded[10],
     ];
 
-    let cells = handle_cells(&mut output, cell_bytes);
+    let cells = handle_cells(&mut output, cell_bytes, debug);
 
     let mut grid = vec![vec!["•".to_string(); 7]; 7];
 
@@ -226,7 +231,7 @@ fn decode_radar_data(decoded: &[u8]) -> Result<String, String> {
     }
 
     // Affichage de la grille
-    output.push_str("\n=== Grille 7x7 ===\n");
+    output.push_str(&format!("\n{}\n=== Grille 7x7 ===\n",player));
     for row in 0..7 {
         let row_str = grid[row].join("");
         output.push_str(&format!("{}\n", row_str));
@@ -235,7 +240,7 @@ fn decode_radar_data(decoded: &[u8]) -> Result<String, String> {
     Ok(output)
 }
 
-fn handle_cells(output: &mut String, cell_bytes: [u8; 5]) -> Vec<u8> {
+fn handle_cells(output: &mut String, cell_bytes: [u8; 5], debug: bool) -> Vec<u8> {
     let mut nibbles = Vec::with_capacity(10);
     for byte in cell_bytes {
         let high = (byte >> 4) & 0x0F;
@@ -244,42 +249,38 @@ fn handle_cells(output: &mut String, cell_bytes: [u8; 5]) -> Vec<u8> {
         nibbles.push(low);
     }
 
-    output.push_str("\n=== Les 10 nibbles (4 bits) ===\n");
+    push_str_debug(output, debug, "\n=== Les 10 nibbles (4 bits) ===\n");
     let nibs_str = nibbles
         .iter()
         .map(|val| format!("{:X}", val))
         .collect::<Vec<_>>()
         .join(",");
-    output.push_str(&format!("{}\n", nibs_str));
+    push_str_debug(output, debug, &format!("{}\n", nibs_str));
 
     // On ignore le 10e nibble qui est un 0 inutile
     let cells = &nibbles[..9]; // slices des 9 premiers
 
-    output.push_str("\n=== Cellules (9) ===\n");
+    push_str_debug(output, debug, "\n=== Cellules (9) ===\n");
     for (i, &val) in cells.iter().enumerate() {
-        output.push_str(&format!(
-            "Cellule {} => nibble=0x{:X}\n",
-            i + 1,
-            val
-        ));
+        push_str_debug(output, debug, &format!("Cellule {} => nibble=0x{:X}\n", i + 1, val));
     }
 
     // Petit affichage pour debug sur les cellules
-    output.push_str("=== Cellules (3x3)(remplissage) ===\n");
+    push_str_debug(output, debug, "\n=== Cellules (3x3)(remplissage) ===\n");
     for (i, &val) in cells.iter().enumerate() {
         let cell_info = decode_cell_info(val);
         if cell_info != "Rien" && cell_info != "Undefined" {
             output.push_str("\n\nWARNING : CELLULE NON VIDE REPEREE\n\n");
         }
-        output.push_str(&format!(
+        push_str_debug(output, debug, &format!(
             "Cellule {}: b-{:04b} h-{:X} => \"{}\"\n",
             i + 1,
             val,
             val,
-            decode_cell_symbol(val)
+            cell_info
         ));
     }
-    output.push_str("\n");
+    push_str_debug(output, debug, "\n");
     cells.to_vec()
 }
 
@@ -371,40 +372,7 @@ fn register_player(channel_sender: &Sender<String>, player_name: &str, reg_token
     match receive_encoded_message(tcp_stream) {
         ServerResponse::SubscribePlayerResult(SubscribePlayerResult::Ok) => {
             send_log(channel_sender, player_tag, "Enregistrement réussi");
-
-            match receive_encoded_message(tcp_stream) {
-                ServerResponse::RadarView(radar_view) => {
-                    send_log(channel_sender, player_tag, &format!("Vue radar reçue : {}", radar_view));
-                    let decoded = decode_chelou64(&radar_view);
-                    match decoded {
-                        Ok(data) => {
-                            match decode_radar_data(&data) {
-                                Ok(radar_text) => {
-                                    let player_tag = format!("{}", player_name);
-                                    send_log(channel_sender, &*player_tag, &radar_text);
-                                    true
-                                }
-                                Err(err) => {
-                                    eprintln!("Erreur dans decode_radar_data : {}", err);
-                                    false
-                                }
-                            }
-                        }
-                        Err(err) => {
-                            send_log(
-                                channel_sender,
-                                player_tag,
-                                &format!("Erreur lors du décodage b64 : {}", err),
-                            );
-                            false
-                        }
-                    }
-                }
-                _ => {
-                    send_log(channel_sender, player_tag, "Message inattendu reçu");
-                    false
-                }
-            }
+            true
         }
         ServerResponse::SubscribePlayerResult(SubscribePlayerResult::Err(error)) => {
             send_log(channel_sender, player_tag, &format!("Erreur lors de l'enregistrement : {:?}", error));
@@ -445,7 +413,7 @@ fn main() {
             server_address.parse().unwrap(),
             player.parse().unwrap(),
             channel_sender.clone(),
-            reg_token.clone()
+            reg_token.clone(),
         );
         threads.push(thread);
     }
@@ -468,20 +436,10 @@ fn launch_player_thread(server_address: String, player: String, channel_sender_c
                 send_log(&channel_sender_cloned, &*player, "Connecté au serveur");
                 let registered = register_player(&channel_sender_cloned, &*player, &*reg_token_cloned, &mut stream);
                 if !registered {
-                    // terminer le thread
                     send_log(&channel_sender_cloned, &*player, "Erreur d'enregistrement, arrêt du thread.");
                     return;
                 } else {
-                    // continuer le thread
-                    // recevoir le packet suivant
-                    match receive_encoded_message(&mut stream) {
-                        ServerResponse::RadarView(radar_view) => {
-                            send_log(&channel_sender_cloned, &*player, &format!("Vue radar reçue : {}", radar_view));
-                        }
-                        _ => {
-                            send_log(&channel_sender_cloned, &*player, "Message inattendu reçu");
-                        }
-                    }
+                    play_game(channel_sender_cloned, player, &mut stream);
                 }
             }
             Err(e) => {
@@ -489,4 +447,37 @@ fn launch_player_thread(server_address: String, player: String, channel_sender_c
             }
         }
     })
+}
+
+fn play_game(channel_sender: Sender<String>, player: String, tcp_stream: &mut TcpStream) {
+    let debug = false;
+    match receive_encoded_message(tcp_stream) {
+        ServerResponse::RadarView(radar_view) => {
+            send_log(&channel_sender, &*player, &format!("Vue radar reçue : {}", radar_view));
+            let decoded = decode_chelou64(&radar_view, debug);
+            match decoded {
+                Ok(data) => {
+                    match decode_radar_data(&data, debug, player.clone()) {
+                        Ok(radar_text) => {
+                            let player_tag = format!("{}", player.clone());
+                            send_log(&channel_sender, &*player_tag, &radar_text);
+                        }
+                        Err(err) => {
+                            eprintln!("Erreur dans decode_radar_data : {}", err);
+                        }
+                    }
+                }
+                Err(err) => {
+                    send_log(
+                        &channel_sender,
+                        &*player,
+                        &format!("Erreur lors du décodage b64 : {}", err),
+                    );
+                }
+            }
+        }
+        _ => {
+            send_log(&channel_sender, &*player, "Message inattendu reçu");
+        }
+    }
 }
