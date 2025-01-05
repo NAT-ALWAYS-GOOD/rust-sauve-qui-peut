@@ -12,6 +12,7 @@ pub enum ClientRequest {
 pub enum ServerResponse {
     RegisterTeamResult(RegisterTeamResult),
     SubscribePlayerResult(SubscribePlayerResult),
+    RadarView(String),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
