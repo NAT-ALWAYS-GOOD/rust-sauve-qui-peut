@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::net::TcpStream;
 use std::sync::mpsc;
 use std::sync::mpsc::Sender;
@@ -6,9 +7,81 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use common::{ClientRequest, ServerResponse, RegisterTeamResult, SubscribePlayerResult, send_encoded_message, receive_encoded_message};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Orientation {
+    NORTH,
+    SOUTH,
+    EAST,
+    WEST
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CellType {
+    Unknown, // Pas encore exploré
+    Free,    // 1 : passage libre
+    Wall,    // 2 : mur
+    Goal,    // 10 : objectif
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct Coord {
+    pub x: i16,
+    pub y: i16,
+}
+struct Player {
+    coords: Coord,
+    orientation: Orientation
+}
+
+struct Maze {
+    pub cells: HashMap<Coord, CellType>,
+}
+
+impl Maze {
+    pub fn new() -> Self {
+        Self {
+            cells: HashMap::new()
+        }
+    }
+
+    pub fn set_cell(&mut self, coord: Coord, cell_type: CellType) {
+        self.cells.insert(coord, cell_type);
+    }
+
+    pub fn get_cell(&self, coord: &Coord) -> CellType {
+        *self.cells.get(coord).unwrap_or(&CellType::Unknown)
+    }
+
+    pub fn display(&self, channel_sender: &Sender<String>, tag: &str, radius: i16) {
+        let mut output = String::new();
+        output.push_str("=== Grille 7x7 ===\n");
+
+        for x in -radius..=radius {
+            for y in (-radius..=radius).rev() {
+                let coord = Coord { x, y };
+                let cell = self.get_cell(&coord);
+                let cell_str = match cell {
+                    CellType::Unknown => "🟫",
+                    CellType::Free    => "⬜️",
+                    CellType::Wall    => "⬛️",
+                    CellType::Goal    => "🎯",
+                };
+                output.push_str(cell_str);
+            }
+            output.push_str("\n");
+        }
+
+        send_log(channel_sender, tag, &output);
+    }
+}
+
 
 fn send_log(channel_sender: &Sender<String>, tag: &str, message: &str) {
-    channel_sender.send(format!("[{}] : {}", tag, message)).unwrap();
+    // FIXME: only send logs if tag is "Joueur 3"
+    if tag == "Joueur 3" {
+        channel_sender.send(format!("[{}] : {}", tag, message)).unwrap();
+    }
+    // channel_sender.send(format!("[{}] : {}", tag, message)).unwrap();
 }
 
 fn register_team(channel_sender: &Sender<String>, server_address: &str) -> Option<String> {
@@ -58,7 +131,7 @@ fn register_team(channel_sender: &Sender<String>, server_address: &str) -> Optio
     }
 }
 
-fn decode_chelou64(input: &str, debug: bool) -> Result<Vec<u8>, String> {
+fn decode_chelou64(input: &str, _debug: bool) -> Result<Vec<u8>, String> {
     let len = input.len();
 
     if len % 4 == 1 {
@@ -125,7 +198,7 @@ fn push_str_debug(output: &mut String, debug: bool, message: &str) {
     }
 }
 
-fn decode_radar_data(decoded: &[u8], debug: bool, player: String) -> Result<String, String> {
+fn decode_radar_data(decoded: &[u8], debug: bool) -> Result<(String, Vec<Vec<u8>>),String> {
     if decoded.len() != 11 {
         return Err(format!(
             "Données incorrectes : {} octets reçus au lieu de 11",
@@ -179,6 +252,7 @@ fn decode_radar_data(decoded: &[u8], debug: bool, player: String) -> Result<Stri
     let cells = handle_cells(&mut output, cell_bytes, debug);
 
     let mut grid = vec![vec!["•".to_string(); 7]; 7];
+    let mut internal_grid : Vec<Vec<u8>> = vec![vec![2; 7]; 7];
 
     // Passages horizontaux
     let hcoords = [
@@ -211,6 +285,7 @@ fn decode_radar_data(decoded: &[u8], debug: bool, player: String) -> Result<Stri
             2 => "-".to_string(), // Wall
             _ => "#".to_string(),
         };
+        internal_grid[r][c] = p;
     }
 
     // On remplit la grille avec les passages verticaux
@@ -222,22 +297,39 @@ fn decode_radar_data(decoded: &[u8], debug: bool, player: String) -> Result<Stri
             2 => "|".to_string(),
             _ => "#".to_string(),
         };
+        internal_grid[r][c] = p;
     }
 
     // On remplit la grille avec les 9 cellules
     for (i, &(r, c)) in ccoords.iter().enumerate() {
         let cell_val = decode_cell_symbol(cells[i]);
-        grid[r][c] = cell_val;
+        grid[r][c] = cell_val.clone();
+        internal_grid[r][c] = match cells[i] {
+            0b1111 => 0,
+            0b1000 => 10,
+            0b1001 => 10,
+            0b1010 => 10,
+            0b1011 => 10,
+            _ => 1,
+        }
+
     }
 
     // Affichage de la grille
-    output.push_str(&format!("\n{}\n=== Grille 7x7 ===\n",player));
+    output.push_str(&"\n=== Grille 7x7 ===\n".to_string());
     for row in 0..7 {
         let row_str = grid[row].join("");
         output.push_str(&format!("{}\n", row_str));
     }
 
-    Ok(output)
+    // Affichage de l'internal_grid
+    output.push_str(&"\n=== Grille interne 7x7 ===\n".to_string());
+    for row in 0..7 {
+        let row_str = internal_grid[row].iter().map(|&val| format!("{}", val)).collect::<Vec<_>>().join("");
+        output.push_str(&format!("{}\n", row_str));
+    }
+
+    Ok((output,internal_grid))
 }
 
 fn handle_cells(output: &mut String, cell_bytes: [u8; 5], debug: bool) -> Vec<u8> {
@@ -449,35 +541,83 @@ fn launch_player_thread(server_address: String, player: String, channel_sender_c
     })
 }
 
-fn play_game(channel_sender: Sender<String>, player: String, tcp_stream: &mut TcpStream) {
+fn local_to_global(
+    player_x: i16,
+    player_y: i16,
+    orientation: Orientation,
+    i: i16,
+    j: i16
+) -> (i16, i16) {
+    let dx = i - 3;
+    let dy = 3 - j;
+
+    let (rot_x, rot_y) = match orientation {
+        Orientation::NORTH => ( dx,      dy),
+        Orientation::EAST  => ( dy,     -dx),
+        Orientation::SOUTH => (-dx,     -dy),
+        Orientation::WEST  => (-dy,      dx),
+    };
+
+    (player_x + rot_x, player_y + rot_y)
+}
+
+fn play_game(channel_sender: Sender<String>, player_name: String, tcp_stream: &mut TcpStream) {
     let debug = false;
-    match receive_encoded_message(tcp_stream) {
-        ServerResponse::RadarView(radar_view) => {
-            send_log(&channel_sender, &*player, &format!("Vue radar reçue : {}", radar_view));
-            let decoded = decode_chelou64(&radar_view, debug);
-            match decoded {
-                Ok(data) => {
-                    match decode_radar_data(&data, debug, player.clone()) {
-                        Ok(radar_text) => {
-                            let player_tag = format!("{}", player.clone());
-                            send_log(&channel_sender, &*player_tag, &radar_text);
-                        }
-                        Err(err) => {
-                            eprintln!("Erreur dans decode_radar_data : {}", err);
+    let playing = true;
+    let mut player = Player {
+        coords: Coord { x: 0, y: 0 },
+        orientation: Orientation::NORTH,
+    };
+    let mut maze = Maze::new();
+    while playing {
+        match receive_encoded_message(tcp_stream) {
+            ServerResponse::RadarView(radar_view) => {
+                send_log(&channel_sender, &*player_name, &format!("Vue radar reçue : {}", radar_view));
+                let decoded = decode_chelou64(&radar_view, debug);
+                match decoded {
+                    Ok(data) => {
+                        match decode_radar_data(&data, debug) {
+                            Ok((radar_text, grid)) => {
+                                let player_tag = format!("{}", player_name.clone());
+                                send_log(&channel_sender, &*player_tag, &radar_text);
+                                for i in 0..7 {
+                                    for j in 0..7 {
+                                        let (global_x, global_y) = local_to_global(player.coords.x, player.coords.y, player.orientation, i, j);
+                                        let cell_type = match grid[i as usize][j as usize] {
+                                            0 => CellType::Unknown,
+                                            1 => CellType::Free,
+                                            2 => CellType::Wall,
+                                            10 => CellType::Goal,
+                                            _ => CellType::Unknown
+                                        };
+                                        maze.set_cell(Coord { x: global_x, y: global_y }, cell_type);
+                                    }
+                                }
+                                send_log(&channel_sender, &*player_tag, &format!("Maze actuel : {:?}", maze.cells));
+                                maze.display(&channel_sender, &*player_tag, 10);
+                                send_log(&channel_sender, &*player_tag, &format!("Coordonnées globales du joueur : {:?}", player.coords));
+                                send_log(&channel_sender, &*player_tag, &format!("Orientation du joueur : {:?}", player.orientation));
+                                send_log(&channel_sender, &*player_tag, "Dodo pendant 10 secondes...");
+                                thread::sleep(Duration::from_secs(10));
+                                // Effectuer une action en fonction
+                            }
+                            Err(err) => {
+                                eprintln!("Erreur dans decode_radar_data : {}", err);
+                            }
                         }
                     }
-                }
-                Err(err) => {
-                    send_log(
-                        &channel_sender,
-                        &*player,
-                        &format!("Erreur lors du décodage b64 : {}", err),
-                    );
+                    Err(err) => {
+                        send_log(
+                            &channel_sender,
+                            &*player_name,
+                            &format!("Erreur lors du décodage b64 : {}", err),
+                        );
+                    }
                 }
             }
-        }
-        _ => {
-            send_log(&channel_sender, &*player, "Message inattendu reçu");
+            msg => {
+                send_log(&channel_sender, &*player_name, &format!("Message inattendu reçu : {:?}", msg));
+            }
         }
     }
 }
