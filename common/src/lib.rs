@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub enum ClientRequest {
     RegisterTeam { name: String },
     SubscribePlayer { name: String, registration_token: String },
+    Action(Action)
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -13,7 +14,45 @@ pub enum ServerResponse {
     RegisterTeamResult(RegisterTeamResult),
     SubscribePlayerResult(SubscribePlayerResult),
     RadarView(String),
+    Hint(Hint),
+    Challenge(Challenge),
+    ActionError(ActionError),
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum Hint {
+    RelativeCompass { angle: f32 },
+    GridSize { columns: u32, rows: u32 },
+    Secret(u64),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum Challenge {
+    SecretSumModulo(u64),
+    SOS,
+}
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum Action {
+    MoveTo(RelativeDirection),
+    SolveChallenge { answer: String }
+}
+
+#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+pub enum RelativeDirection {
+    Front,
+    Right,
+    Back,
+    Left
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum ActionError {
+    CannotPassThroughWall,
+    NoRunningChallenge,
+    SolveChallengeFirst,
+    InvalidChallengeSolution
+}
+
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum RegisterTeamResult {
@@ -45,7 +84,10 @@ pub fn send_encoded_message(stream: &mut TcpStream, json_message: Vec<u8>) {
     }
 }
 
-pub fn receive_encoded_message<T>(tcp_stream: &mut TcpStream) -> T where T: serde::de::DeserializeOwned {
+pub fn receive_encoded_message<T>(tcp_stream: &mut TcpStream) -> T
+where
+    T: serde::de::DeserializeOwned,
+{
     let mut buffer = [0u8; 4];
     tcp_stream.read_exact(&mut buffer).unwrap();
     let message_size = u32::from_le_bytes(buffer) as usize;
