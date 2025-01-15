@@ -277,9 +277,11 @@ fn handle_challenge(challenge: common::Challenge, channel_sender: &Sender<String
                 &format!("Nombres partagés : {:?}", *shared_mutex),
                 Minor
             );
-            let sum_mod = shared_mutex.iter().fold(0u64, |acc, &val| {
-                (acc + (val % number)) % number
-            });
+            let sum_mod = shared_mutex
+                .iter()
+                .fold(0u128, |acc, &val| {
+                    (acc + val as u128) % (number as u128)
+                }) as u64;
             send_log(
                 channel_sender,
                 player_name,
@@ -295,9 +297,6 @@ fn handle_challenge(challenge: common::Challenge, channel_sender: &Sender<String
                 Major
             );
             send_encoded_message(tcp_stream, json_message);
-            // FIXME : remove this useless action, we can keep the last numbers we don't need to reset them
-            // shared_numbers : set all 3 to 0
-            *shared_mutex = vec![0; 3];
         }
         common::Challenge::SOS => {
             send_log(channel_sender, player_name, "SOS reçu, mais je ne sais pas quoi faire...", Mandatory);

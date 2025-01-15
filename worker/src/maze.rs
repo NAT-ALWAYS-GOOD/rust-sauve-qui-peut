@@ -1,8 +1,7 @@
+use crate::logger::send_log;
+use crate::logger::LogType::Minor;
 use std::collections::HashMap;
 use std::sync::mpsc::Sender;
-use crate::decoder::{decode_chelou64, decode_radar_data};
-use crate::logger::LogType::{Insignificant, Mandatory, Medium, Minor};
-use crate::logger::send_log;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CellType {
