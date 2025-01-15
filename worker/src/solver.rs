@@ -184,6 +184,7 @@ pub fn move_to_next_step(player: &mut Player, player_tag: &str, next_step: Coord
     let dy = next_step.y - player.coords.y;
     // dx = 2, dy = 0
 
+    *last_player_orientation = player.orientation.clone();
     let mut direction = RelativeDirection::Front;
     if dx == 2 && dy == 0 {
         direction = compute_direction(player.orientation.clone(), Orientation::East);
@@ -219,7 +220,6 @@ pub fn move_to_next_step(player: &mut Player, player_tag: &str, next_step: Coord
     send_encoded_message(tcp_stream, json_message);
 
     *last_player_coords = player.coords.clone();
-    *last_player_orientation = player.orientation.clone();
     *last_action = Some(action);
     player.coords = next_step;
     send_log(
