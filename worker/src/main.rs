@@ -126,6 +126,7 @@ fn play_game(channel_sender: Sender<String>, player_name: String, tcp_stream: &m
 
     let mut last_action: Option<Action> = None;
     let mut last_player_coords: Coord = player.coords;
+    let mut last_player_orientation: Orientation = player.orientation;
 
     'gameloop: while playing {
         match receive_encoded_message(tcp_stream) {
@@ -142,7 +143,7 @@ fn play_game(channel_sender: Sender<String>, player_name: String, tcp_stream: &m
                     }
                     send_log(&channel_sender, &*player_tag, &format!("Objectif trouvé en {:?}, déplacement en cours...", goal_coord), Major);
                     instructions.extend(find_path_to_goal(player.coords, goal_coord, &mut maze, &channel_sender, &player_name));
-                    move_to_next_step(&mut player, &player_name, instructions.remove(0), &channel_sender, tcp_stream, &mut last_action, &mut last_player_coords);
+                    move_to_next_step(&mut player, &player_name, instructions.remove(0), &channel_sender, tcp_stream, &mut last_action, &mut last_player_coords, &mut last_player_orientation);
                     return;
                 }
 
@@ -155,7 +156,7 @@ fn play_game(channel_sender: Sender<String>, player_name: String, tcp_stream: &m
                     instructions.extend(find_path_to_goal(player.coords, frontier, &mut maze, &channel_sender, &player_name));
                 }
 
-                move_to_next_step(&mut player, &player_name, instructions.remove(0), &channel_sender, tcp_stream, &mut last_action, &mut last_player_coords);
+                move_to_next_step(&mut player, &player_name, instructions.remove(0), &channel_sender, tcp_stream, &mut last_action, &mut last_player_coords, &mut last_player_orientation);
 
                 send_log(&channel_sender, &*player_tag, "Dodo pendant 0,05 secondes...", Insignificant);
                 thread::sleep(Duration::from_millis(50));
@@ -170,7 +171,7 @@ fn play_game(channel_sender: Sender<String>, player_name: String, tcp_stream: &m
                 }
             }
             ServerResponse::ActionError(action_error) => {
-                let fatal = handle_action_error(action_error, &channel_sender, &*player_name, &mut last_action, &mut player, &mut last_player_coords);
+                let fatal = handle_action_error(action_error, &channel_sender, &*player_name, &mut last_action, &mut player, &mut last_player_coords, &mut last_player_orientation);
                 if fatal {
                     break 'gameloop;
                 }
@@ -221,7 +222,7 @@ fn handle_hint(hint: common::Hint, channel_sender: &Sender<String>, player_name:
     }
 }
 
-fn handle_action_error(action_error: common::ActionError, channel_sender: &Sender<String>, player_name: &str, last_action: &mut Option<Action>, player: &mut Player, last_player_coords: &mut Coord) -> bool {
+fn handle_action_error(action_error: common::ActionError, channel_sender: &Sender<String>, player_name: &str, last_action: &mut Option<Action>, player: &mut Player, last_player_coords: &mut Coord, last_player_orientation: &mut Orientation) -> bool {
     send_log(
         channel_sender,
         player_name,
@@ -232,6 +233,7 @@ fn handle_action_error(action_error: common::ActionError, channel_sender: &Sende
         common::ActionError::CannotPassThroughWall => {
             send_log(channel_sender, player_name, "Impossible de passer à travers un mur", Mandatory);
             player.coords = *last_player_coords;
+            player.orientation = *last_player_orientation;
             send_log(
                 channel_sender,
                 player_name,

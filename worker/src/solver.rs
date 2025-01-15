@@ -178,7 +178,7 @@ pub fn compute_direction(player_orientation: Orientation, wanted_direction: Orie
     }
 }
 
-pub fn move_to_next_step(player: &mut Player, player_tag: &str, next_step: Coord, channel_sender: &Sender<String>, tcp_stream: &mut TcpStream, last_action: &mut Option<Action>, last_player_coords: &mut Coord) {
+pub fn move_to_next_step(player: &mut Player, player_tag: &str, next_step: Coord, channel_sender: &Sender<String>, tcp_stream: &mut TcpStream, last_action: &mut Option<Action>, last_player_coords: &mut Coord, last_player_orientation: &mut Orientation) {
     // ex : next_step = Coord { x: 24, y: 10 } et player.coords = Coord { x: 22, y: 10 }
     let dx = next_step.x - player.coords.x;
     let dy = next_step.y - player.coords.y;
@@ -219,6 +219,7 @@ pub fn move_to_next_step(player: &mut Player, player_tag: &str, next_step: Coord
     send_encoded_message(tcp_stream, json_message);
 
     *last_player_coords = player.coords.clone();
+    *last_player_orientation = player.orientation.clone();
     *last_action = Some(action);
     player.coords = next_step;
     send_log(
