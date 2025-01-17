@@ -5,8 +5,8 @@ mod solver;
 
 use crate::logger::send_log;
 use crate::logger::LogType::{Insignificant, Major, Mandatory, Medium, Minor};
-use crate::maze::{distance, Coord, Maze, Orientation, Player};
-use crate::solver::{find_nearest_frontier, find_path_to_goal, move_to_next_step, receive_radar_view};
+use crate::maze::{Coord, Maze, Orientation, Player};
+use crate::solver::{find_nearest_frontier, find_path_to_goal, move_to_next_step, receive_radar_view, AngleHint};
 use common::{receive_encoded_message, send_encoded_message, Action, ClientRequest, RegisterTeamResult, ServerResponse, SubscribePlayerResult};
 use std::net::TcpStream;
 use std::sync::mpsc::Sender;
@@ -128,6 +128,8 @@ fn play_game(channel_sender: Sender<String>, player_name: String, tcp_stream: &m
     let mut last_player_coords: Coord = player.coords;
     let mut last_player_orientation: Orientation = player.orientation;
 
+    let mut angle_hints : Vec<AngleHint> = Vec::new();
+
     'gameloop: while playing {
         match receive_encoded_message(tcp_stream) {
             ServerResponse::RadarView(radar_view) => {
@@ -148,24 +150,26 @@ fn play_game(channel_sender: Sender<String>, player_name: String, tcp_stream: &m
                 }
 
                 if let Some(frontier) = find_nearest_frontier(&maze, player.coords, &channel_sender, &player_name) {
-                    if let Some(&last) = instructions.last() {
-                        if last != frontier && distance(player.coords, frontier) != distance(player.coords, last) {
-                            instructions.clear();
-                        }
-                    }
+                    instructions.clear();
                     instructions.extend(find_path_to_goal(player.coords, frontier, &mut maze, &channel_sender, &player_name));
                 }
 
+                // before move instructions
+                send_log(&channel_sender, &*player_tag, &format!("BEFORE MOVE : Instructions restantes : {:?}", instructions), Minor);
+                send_log(&channel_sender, &*player_tag, &format!("BEFORE MOVE : Coordonnées du joueur : {:?}", player.coords), Minor);
+                send_log(&channel_sender, &*player_tag, &format!("BEFORE MOVE : Orientation du joueur : {:?}", player.orientation), Minor);
                 move_to_next_step(&mut player, &player_name, instructions.remove(0), &channel_sender, tcp_stream, &mut last_action, &mut last_player_coords, &mut last_player_orientation);
+                send_log(&channel_sender, &*player_tag, &format!("AFTER MOVE : Coordonnées du joueur : {:?}", player.coords), Minor);
+                send_log(&channel_sender, &*player_tag, &format!("AFTER MOVE : Orientation du joueur : {:?}", player.orientation), Minor);
 
-                send_log(&channel_sender, &*player_tag, "Dodo pendant 0,05 secondes...", Insignificant);
+                send_log(&channel_sender, &*player_tag, "Dodo pendant 0,20 secondes...", Insignificant);
                 thread::sleep(Duration::from_millis(50));
             }
             ServerResponse::Challenge(challenge) => {
                 handle_challenge(challenge, &channel_sender, &*player_name, tcp_stream, &shared_numbers);
             }
             ServerResponse::Hint(hint) => {
-                let next = handle_hint(hint, &channel_sender, &*player_name, &shared_numbers, thread_index);
+                let next = handle_hint(hint, &channel_sender, &*player_name, &shared_numbers, thread_index, &mut angle_hints, &player);
                 if next {
                     continue 'gameloop;
                 }
@@ -183,7 +187,7 @@ fn play_game(channel_sender: Sender<String>, player_name: String, tcp_stream: &m
     }
 }
 
-fn handle_hint(hint: common::Hint, channel_sender: &Sender<String>, player_name: &str, shared_numbers: &Arc<Mutex<Vec<u64>>>, thread_index: usize) -> bool {
+fn handle_hint(hint: common::Hint, channel_sender: &Sender<String>, player_name: &str, shared_numbers: &Arc<Mutex<Vec<u64>>>, thread_index: usize, angle_hints: &mut Vec<AngleHint>, player: &Player) -> bool {
     send_log(
         channel_sender,
         player_name,
@@ -217,6 +221,7 @@ fn handle_hint(hint: common::Hint, channel_sender: &Sender<String>, player_name:
                 &format!("Indication de direction relative : angle = {}", angle),
                 Mandatory
             );
+            angle_hints.push(AngleHint { coord: player.coords, orientation: player.orientation, angle });
             true
         }
     }
@@ -270,7 +275,7 @@ fn handle_challenge(challenge: common::Challenge, channel_sender: &Sender<String
     );
     match challenge {
         common::Challenge::SecretSumModulo(number) => {
-            let mut shared_mutex = shared_numbers.lock().unwrap();
+            let shared_mutex = shared_numbers.lock().unwrap();
             send_log(
                 channel_sender,
                 player_name,

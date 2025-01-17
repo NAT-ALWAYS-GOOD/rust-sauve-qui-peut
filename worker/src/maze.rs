@@ -81,7 +81,7 @@ impl Maze {
         send_log(channel_sender, tag, &output, Minor);
     }
 
-    pub fn display(&self, channel_sender: &Sender<String>, tag: &str, radius: i16) {
+    pub fn display(&self, channel_sender: &Sender<String>, tag: &str, radius: i16, player: &Player) {
         let mut output = String::new();
         output.push_str("=== Maze 7x7 ===\n");
 
@@ -89,6 +89,20 @@ impl Maze {
             for x in -radius..=radius {
                 let coord = Coord { x, y };
                 let cell = self.get_cell(&coord);
+                if coord.x == 0 && coord.y == 0 {
+                    output.push_str("0️⃣");
+                    continue;
+                }
+                if coord == player.coords {
+                    let orientation_str = match player.orientation {
+                        Orientation::North => "🔼",
+                        Orientation::East  => "▶️",
+                        Orientation::South => "🔽",
+                        Orientation::West  => "◀️",
+                    };
+                    output.push_str(orientation_str);
+                    continue;
+                }
                 let cell_str = match cell {
                     CellType::Unknown => "🟫",
                     CellType::Free    => "⬜️",
@@ -111,8 +125,4 @@ pub fn neighbors(coord: Coord) -> Vec<Coord> {
         Coord { x: coord.x - 1, y: coord.y },
         Coord { x: coord.x + 1, y: coord.y }
     ]
-}
-
-pub fn distance(player: Coord, goal: Coord) -> u64 {
-    ((player.x - goal.x).abs() + (player.y - goal.y).abs()) as u64
 }

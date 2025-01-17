@@ -7,6 +7,12 @@ use crate::logger::LogType::{Insignificant, Mandatory, Medium, Minor};
 use crate::logger::send_log;
 use crate::maze::{neighbors, CellType, Coord, Maze, Orientation, Player};
 
+pub struct AngleHint {
+    pub coord: Coord,
+    pub orientation: Orientation,
+    pub angle: f32,
+}
+
 pub fn receive_radar_view(channel_sender: &Sender<String>, player_name: &String, debug: bool, player: &mut Player, mut maze: &mut Maze, mut goal_cell: &mut Option<Coord>, radar_view: &String) {
     send_log(&channel_sender, &*player_name, &format!("Vue radar reçue : {}", radar_view), Medium);
     let decoded = decode_chelou64(&radar_view, debug);
@@ -23,7 +29,7 @@ pub fn receive_radar_view(channel_sender: &Sender<String>, player_name: &String,
     }
 
     send_log(&channel_sender, &*player_name, &format!("Coordonnées globales du joueur : {:?}", player.coords), Minor);
-    maze.display(&channel_sender, &*player_name, 20);
+    maze.display(&channel_sender, &*player_name, 50, &player);
     // send_log(&channel_sender, &*player_tag, &format!("Maze actuel : {:?}", maze.cells));
 }
 
@@ -179,24 +185,130 @@ pub fn compute_direction(player_orientation: Orientation, wanted_direction: Orie
 }
 
 pub fn move_to_next_step(player: &mut Player, player_tag: &str, next_step: Coord, channel_sender: &Sender<String>, tcp_stream: &mut TcpStream, last_action: &mut Option<Action>, last_player_coords: &mut Coord, last_player_orientation: &mut Orientation) {
-    // ex : next_step = Coord { x: 24, y: 10 } et player.coords = Coord { x: 22, y: 10 }
+    send_log(
+        channel_sender,
+        player_tag,
+        &format!("Trying to move to next step : {:?}", next_step),
+        Medium,
+    );
+
+    // log calcul du vecteur
+    send_log(
+        channel_sender,
+        player_tag,
+        &format!("Calcul du vecteur : next_step = {:?} et player.coords = {:?}", next_step, player.coords),
+        Insignificant
+    );
+
+    // ex : next_step = Coord { x: -4, y: 2 } et player.coords = Coord { x: -4, y: 4 }
     let dx = next_step.x - player.coords.x;
     let dy = next_step.y - player.coords.y;
-    // dx = 2, dy = 0
+    // dx = 0, dy = -2
+    send_log(
+        channel_sender,
+        player_tag,
+        &format!("Vecteur calculé : dx = {}, dy = {}", dx, dy),
+        Insignificant
+    );
+
+
+    // [2025-01-16 11:02:02] [Joueur_1] Chemin filtré : [Coord { x: -4, y: 2 }, Coord { x: -2, y: 2 }, Coord { x: -2, y: 4 }]
+    // [2025-01-16 11:02:02] [Joueur_1] BEFORE MOVE : Coordonnées du joueur : Coord { x: -4, y: 4 }
+    // [2025-01-16 11:02:02] [Joueur_1] BEFORE MOVE : Orientation du joueur : East
+    // [2025-01-16 11:02:02] [Joueur_1] Déplacement : Left (message : Action(MoveTo(Left)))
+    // [2025-01-16 11:02:02] [Joueur_1] Coordonnées mises à jour : Coord { x: -4, y: 6 }
+    // [2025-01-16 11:02:02] [Joueur_1] AFTER MOVE : Coordonnées du joueur : Coord { x: -4, y: 6 }
+    // [2025-01-16 11:02:02] [Joueur_1] AFTER MOVE : Orientation du joueur : North
+
 
     *last_player_orientation = player.orientation.clone();
     let mut direction = RelativeDirection::Front;
     if dx == 2 && dy == 0 {
+        send_log(
+            channel_sender,
+            player_tag,
+            &format!("Déplacement vers est, orientation du joueur : {:?}", player.orientation),
+            Insignificant
+        );
+        send_log(
+            channel_sender,
+            player_tag,
+            "Direction Possibles selon orientation joueur :\nNord: Direction Left\nEst: Direction Front\nSud: Direction Right\nOuest: Direction Back",
+            Insignificant
+        );
         direction = compute_direction(player.orientation.clone(), Orientation::East);
+        send_log(
+            channel_sender,
+            player_tag,
+            &format!("Direction calculée pour joueur avec orientation initiale de {:?} et une orientation voulue à l'Est : {:?}", player.orientation, direction),
+            Insignificant
+        );
         player.orientation = Orientation::East;
     } else if dx == -2 && dy == 0 {
+        send_log(
+            channel_sender,
+            player_tag,
+            &format!("Déplacement vers ouest, orientation du joueur : {:?}", player.orientation),
+            Insignificant
+        );
+        send_log(
+            channel_sender,
+            player_tag,
+            "Direction Possibles selon orientation joueur :\nNord: Direction Right\nEst: Direction Back\nSud: Direction Left\nOuest: Direction Front",
+            Insignificant
+        );
         direction = compute_direction(player.orientation.clone(), Orientation::West);
+        send_log(
+            channel_sender,
+            player_tag,
+            &format!("Direction calculée pour joueur avec orientation initiale de {:?} et une orientation voulue à l'Ouest : {:?}", player.orientation, direction),
+            Insignificant
+        );
         player.orientation = Orientation::West;
     } else if dx == 0 && dy == 2 {
+        send_log(
+            channel_sender,
+            player_tag,
+            &format!("Déplacement vers nord, orientation du joueur : {:?}", player.orientation),
+            Insignificant
+        );
+        send_log(
+            channel_sender,
+            player_tag,
+            "Direction Possibles selon orientation joueur :\nNord: Direction Front\nEst: Direction Left\nSud: Direction Back\nOuest: Direction Right",
+            Insignificant
+        );
         direction = compute_direction(player.orientation.clone(), Orientation::North);
+        send_log(
+            channel_sender,
+            player_tag,
+            &format!("Direction calculée pour joueur avec orientation initiale de {:?} et une orientation voulue au Nord : {:?}", player.orientation, direction),
+            Insignificant
+        );
         player.orientation = Orientation::North;
     } else if dx == 0 && dy == -2 {
+        // déplacement vers sud, orientation du joueur :
+        send_log(
+            channel_sender,
+            player_tag,
+            &format!("Déplacement vers sud, orientation du joueur : {:?}", player.orientation),
+            Insignificant
+        );
+        // log des directions calculables possibles
+        send_log(
+            channel_sender,
+            player_tag,
+            "Direction Possibles selon orientation joueur :\nNord: Direction Back\nEst: Direction Right\nSud: Direction Front\nOuest: Direction Left",
+            Insignificant
+        );
         direction = compute_direction(player.orientation.clone(), Orientation::South);
+        // direction calculée :
+        send_log(
+            channel_sender,
+            player_tag,
+            &format!("Direction calculée pour joueur avec orientation initiale de {:?} et une orientation voulue au Sud : {:?}", player.orientation, direction),
+            Insignificant
+        );
         player.orientation = Orientation::South;
     } else {
         send_log(
@@ -214,7 +326,7 @@ pub fn move_to_next_step(player: &mut Player, player_tag: &str, next_step: Coord
     send_log(
         channel_sender,
         player_tag,
-        &format!("\nDéplacement : {:?} (message : {:?})", direction.clone(), client_request),
+        &format!("Déplacement : {:?} (message : {:?})", direction.clone(), client_request),
         Medium,
     );
     send_encoded_message(tcp_stream, json_message);
