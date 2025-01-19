@@ -6,3 +6,4 @@ worker/target
 .DS_Store
 common/target
 logs
+server/target
