@@ -65,6 +65,7 @@ pub fn process_radar_data(data: Vec<u8>, debug: bool, channel_sender: &Sender<St
                     0 => CellType::Unknown,
                     1 => CellType::Free,
                     2 => CellType::Wall,
+                    5 => CellType::Ally,
                     10 => CellType::Goal,
                     _ => CellType::Unknown,
                 };
@@ -78,6 +79,15 @@ pub fn process_radar_data(data: Vec<u8>, debug: bool, channel_sender: &Sender<St
                         Mandatory
                     );
                     *goal_cell = Some(Coord { x: global_x, y: global_y });
+                }
+
+                if cell_type == CellType::Ally {
+                    send_log(
+                        channel_sender,
+                        player_tag,
+                        &format!("!!! Allié trouvé en {:?} !!!", (global_x, global_y)),
+                        Mandatory
+                    );
                 }
 
                 // On met à jour le Maze
@@ -112,7 +122,7 @@ pub fn find_nearest_frontier(maze: &Maze, start: Coord, channel_sender: &Sender<
                     Insignificant,
                 );
                 for adj in neighbors(neighbor) {
-                    if maze.get_cell(&adj) == CellType::Free && adj != start {
+                    if (maze.get_cell(&adj) == CellType::Free || maze.get_cell(&adj) == CellType::Ally) && adj != start {
                         send_log(
                             channel_sender,
                             player_name,
@@ -127,7 +137,7 @@ pub fn find_nearest_frontier(maze: &Maze, start: Coord, channel_sender: &Sender<
                 }
             }
             // Si ce n'est pas une frontière, continuer l'exploration BFS
-            if maze.get_cell(&neighbor) == CellType::Free && !visited.contains(&neighbor) {
+            if (maze.get_cell(&neighbor) == CellType::Free || maze.get_cell(&neighbor) == CellType::Ally)  && !visited.contains(&neighbor) {
                 send_log(
                     channel_sender,
                     player_name,

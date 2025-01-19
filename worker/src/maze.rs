@@ -9,6 +9,7 @@ pub enum CellType {
     Free,    // 1 : passage libre
     Wall,    // 2 : mur
     Goal,    // 10 : objectif
+    Ally,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,6 +72,7 @@ impl Maze {
                     CellType::Unknown => "0",
                     CellType::Free    => "1",
                     CellType::Wall    => "2",
+                    CellType::Ally    => "5",
                     CellType::Goal    => "10",
                 };
                 output.push_str(cell_str);
@@ -106,6 +108,7 @@ impl Maze {
                 let cell_str = match cell {
                     CellType::Unknown => "🟫",
                     CellType::Free    => "⬜️",
+                    CellType::Ally    => "👥",
                     CellType::Wall    => "⬛️",
                     CellType::Goal    => "🎯",
                 };
