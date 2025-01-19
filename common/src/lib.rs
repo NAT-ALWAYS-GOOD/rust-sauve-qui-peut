@@ -1,12 +1,17 @@
+use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ClientRequest {
-    RegisterTeam { name: String },
-    SubscribePlayer { name: String, registration_token: String },
-    Action(Action)
+    RegisterTeam {
+        name: String,
+    },
+    SubscribePlayer {
+        name: String,
+        registration_token: String,
+    },
+    Action(Action),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -34,7 +39,7 @@ pub enum Challenge {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Action {
     MoveTo(RelativeDirection),
-    SolveChallenge { answer: String }
+    SolveChallenge { answer: String },
 }
 
 #[derive(Serialize, Deserialize, Debug, Copy, Clone)]
@@ -42,7 +47,7 @@ pub enum RelativeDirection {
     Front,
     Right,
     Back,
-    Left
+    Left,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -50,13 +55,15 @@ pub enum ActionError {
     CannotPassThroughWall,
     NoRunningChallenge,
     SolveChallengeFirst,
-    InvalidChallengeSolution
+    InvalidChallengeSolution,
 }
-
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum RegisterTeamResult {
-    Ok { expected_players: u8, registration_token: String },
+    Ok {
+        expected_players: u8,
+        registration_token: String,
+    },
     Err(RegistrationError),
 }
 

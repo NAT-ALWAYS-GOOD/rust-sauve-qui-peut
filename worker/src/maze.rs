@@ -37,7 +37,7 @@ pub struct Maze {
 impl Maze {
     pub fn new() -> Self {
         Self {
-            cells: HashMap::new()
+            cells: HashMap::new(),
         }
     }
 
@@ -53,10 +53,10 @@ impl Maze {
     }
 
     pub fn get_cell(&self, coord: &Coord) -> CellType {
-        let cell_type : Option<&CellType> = self.cells.get(coord);
+        let cell_type: Option<&CellType> = self.cells.get(coord);
         match cell_type {
             Some(cell) => *cell,
-            None => CellType::Unknown
+            None => CellType::Unknown,
         }
     }
 
@@ -70,10 +70,10 @@ impl Maze {
                 let cell = self.get_cell(&coord);
                 let cell_str = match cell {
                     CellType::Unknown => "0",
-                    CellType::Free    => "1",
-                    CellType::Wall    => "2",
-                    CellType::Ally    => "5",
-                    CellType::Goal    => "10",
+                    CellType::Free => "1",
+                    CellType::Wall => "2",
+                    CellType::Ally => "5",
+                    CellType::Goal => "10",
                 };
                 output.push_str(cell_str);
             }
@@ -83,7 +83,13 @@ impl Maze {
         send_log(channel_sender, tag, &output, Minor);
     }
 
-    pub fn display(&self, channel_sender: &Sender<String>, tag: &str, radius: i16, player: &Player) {
+    pub fn display(
+        &self,
+        channel_sender: &Sender<String>,
+        tag: &str,
+        radius: i16,
+        player: &Player,
+    ) {
         let mut output = String::new();
         output.push_str("=== Maze 7x7 ===\n");
 
@@ -98,19 +104,19 @@ impl Maze {
                 if coord == player.coords {
                     let orientation_str = match player.orientation {
                         Orientation::North => "🔼",
-                        Orientation::East  => "▶️",
+                        Orientation::East => "▶️",
                         Orientation::South => "🔽",
-                        Orientation::West  => "◀️",
+                        Orientation::West => "◀️",
                     };
                     output.push_str(orientation_str);
                     continue;
                 }
                 let cell_str = match cell {
                     CellType::Unknown => "🟫",
-                    CellType::Free    => "⬜️",
-                    CellType::Ally    => "👥",
-                    CellType::Wall    => "⬛️",
-                    CellType::Goal    => "🎯",
+                    CellType::Free => "⬜️",
+                    CellType::Ally => "👥",
+                    CellType::Wall => "⬛️",
+                    CellType::Goal => "🎯",
                 };
                 output.push_str(cell_str);
             }
@@ -123,9 +129,21 @@ impl Maze {
 
 pub fn neighbors(coord: Coord) -> Vec<Coord> {
     vec![
-        Coord { x: coord.x,     y: coord.y + 1 },
-        Coord { x: coord.x,     y: coord.y - 1 },
-        Coord { x: coord.x - 1, y: coord.y },
-        Coord { x: coord.x + 1, y: coord.y }
+        Coord {
+            x: coord.x,
+            y: coord.y + 1,
+        },
+        Coord {
+            x: coord.x,
+            y: coord.y - 1,
+        },
+        Coord {
+            x: coord.x - 1,
+            y: coord.y,
+        },
+        Coord {
+            x: coord.x + 1,
+            y: coord.y,
+        },
     ]
 }

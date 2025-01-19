@@ -1,7 +1,7 @@
-use std::sync::mpsc::Sender;
+use chrono::Local;
 use std::fs::OpenOptions;
 use std::io::Write;
-use chrono::Local;
+use std::sync::mpsc::Sender;
 
 pub enum LogType {
     Insignificant,
@@ -18,7 +18,9 @@ pub fn send_log(channel_sender: &Sender<String>, tag: &str, message: &str, log_t
     let log_type_level = LogType::Major;
 
     if log_type as i32 >= log_type_level as i32 {
-        channel_sender.send(format!("[{}] [{}] {}", timestamp_str, tag, message)).unwrap();
+        channel_sender
+            .send(format!("[{}] [{}] {}", timestamp_str, tag, message))
+            .unwrap();
     }
 
     store_log_to_file(tag, message, now);
@@ -26,7 +28,6 @@ pub fn send_log(channel_sender: &Sender<String>, tag: &str, message: &str, log_t
 
 fn store_log_to_file(tag: &str, message: &str, now: chrono::DateTime<Local>) {
     let date_str = now.format("%Y%m%d").to_string();
-
 
     let tag = tag.replace(" ", "_");
     let filename = format!("../logs/{}_{}_{}.log", tag, date_str, 1);
@@ -39,6 +40,9 @@ fn store_log_to_file(tag: &str, message: &str, now: chrono::DateTime<Local>) {
 
     let timestamp_str = now.format("%Y-%m-%d %H:%M:%S").to_string();
     if let Err(e) = writeln!(file, "[{}] [{}] {}", timestamp_str, tag, message) {
-        eprintln!("Erreur lors de l'écriture dans le fichier {}: {}", filename, e);
+        eprintln!(
+            "Erreur lors de l'écriture dans le fichier {}: {}",
+            filename, e
+        );
     }
 }

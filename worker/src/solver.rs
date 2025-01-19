@@ -1,11 +1,11 @@
+use crate::decoder::{decode_chelou64, decode_radar_data};
+use crate::logger::send_log;
+use crate::logger::LogType::{Insignificant, Mandatory, Medium, Minor};
+use crate::maze::{neighbors, CellType, Coord, Maze, Orientation, Player};
+use common::{send_encoded_message, Action, ClientRequest, RelativeDirection};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpStream;
 use std::sync::mpsc::Sender;
-use common::{send_encoded_message, Action, ClientRequest, RelativeDirection};
-use crate::decoder::{decode_chelou64, decode_radar_data};
-use crate::logger::LogType::{Insignificant, Mandatory, Medium, Minor};
-use crate::logger::send_log;
-use crate::maze::{neighbors, CellType, Coord, Maze, Orientation, Player};
 
 pub struct AngleHint {
     pub coord: Coord,
@@ -13,8 +13,21 @@ pub struct AngleHint {
     pub angle: f32,
 }
 
-pub fn receive_radar_view(channel_sender: &Sender<String>, player_name: &String, debug: bool, player: &mut Player, mut maze: &mut Maze, mut goal_cell: &mut Option<Coord>, radar_view: &String) {
-    send_log(&channel_sender, &*player_name, &format!("Vue radar reçue : {}", radar_view), Medium);
+pub fn receive_radar_view(
+    channel_sender: &Sender<String>,
+    player_name: &String,
+    debug: bool,
+    player: &mut Player,
+    mut maze: &mut Maze,
+    mut goal_cell: &mut Option<Coord>,
+    radar_view: &String,
+) {
+    send_log(
+        &channel_sender,
+        &*player_name,
+        &format!("Vue radar reçue : {}", radar_view),
+        Medium,
+    );
     let decoded = decode_chelou64(&radar_view, debug);
     if let Ok(data) = decoded {
         process_radar_data(
@@ -24,16 +37,29 @@ pub fn receive_radar_view(channel_sender: &Sender<String>, player_name: &String,
             &player_name,
             &player,
             &mut maze,
-            &mut goal_cell
+            &mut goal_cell,
         );
     }
 
-    send_log(&channel_sender, &*player_name, &format!("Coordonnées globales du joueur : {:?}", player.coords), Minor);
+    send_log(
+        &channel_sender,
+        &*player_name,
+        &format!("Coordonnées globales du joueur : {:?}", player.coords),
+        Minor,
+    );
     maze.display(&channel_sender, &*player_name, 50, &player);
     // send_log(&channel_sender, &*player_tag, &format!("Maze actuel : {:?}", maze.cells));
 }
 
-pub fn process_radar_data(data: Vec<u8>, debug: bool, channel_sender: &Sender<String>, player_tag: &str, player: &Player, maze: &mut Maze, goal_cell: &mut Option<Coord>) {
+pub fn process_radar_data(
+    data: Vec<u8>,
+    debug: bool,
+    channel_sender: &Sender<String>,
+    player_tag: &str,
+    player: &Player,
+    maze: &mut Maze,
+    goal_cell: &mut Option<Coord>,
+) {
     if let Ok((radar_text, grid)) = decode_radar_data(&data, debug) {
         send_log(channel_sender, player_tag, &radar_text, Minor);
         for i in 0..7 {
@@ -42,7 +68,7 @@ pub fn process_radar_data(data: Vec<u8>, debug: bool, channel_sender: &Sender<St
                     channel_sender,
                     player_tag,
                     &format!("Cellule ({}, {}) : {}\n", i, j, grid[i][j]),
-                    Insignificant
+                    Insignificant,
                 );
 
                 // On obtient les coordonnées globales
@@ -51,13 +77,13 @@ pub fn process_radar_data(data: Vec<u8>, debug: bool, channel_sender: &Sender<St
                     player_tag,
                     player,
                     j as i16 - 3,
-                    3 - i as i16
+                    3 - i as i16,
                 );
                 send_log(
                     channel_sender,
                     player_tag,
                     &format!("Coordonnées globales : ({};{})", global_x, global_y),
-                    Insignificant
+                    Insignificant,
                 );
 
                 // On détermine le type de cellule
@@ -76,9 +102,12 @@ pub fn process_radar_data(data: Vec<u8>, debug: bool, channel_sender: &Sender<St
                         channel_sender,
                         player_tag,
                         &format!("!!! Objectif trouvé en {:?} !!!", (global_x, global_y)),
-                        Mandatory
+                        Mandatory,
                     );
-                    *goal_cell = Some(Coord { x: global_x, y: global_y });
+                    *goal_cell = Some(Coord {
+                        x: global_x,
+                        y: global_y,
+                    });
                 }
 
                 if cell_type == CellType::Ally {
@@ -86,20 +115,31 @@ pub fn process_radar_data(data: Vec<u8>, debug: bool, channel_sender: &Sender<St
                         channel_sender,
                         player_tag,
                         &format!("!!! Allié trouvé en {:?} !!!", (global_x, global_y)),
-                        Mandatory
+                        Mandatory,
                     );
                 }
 
                 // On met à jour le Maze
-                maze.set_cell(Coord { x: global_x, y: global_y }, cell_type);
+                maze.set_cell(
+                    Coord {
+                        x: global_x,
+                        y: global_y,
+                    },
+                    cell_type,
+                );
             }
         }
         maze.display_numbers(channel_sender, player_tag, 3);
     }
 }
 
-pub fn find_nearest_frontier(maze: &Maze, start: Coord, channel_sender: &Sender<String>, player_name: &str) -> Option<Coord> {
-    use std::collections::{VecDeque, HashSet};
+pub fn find_nearest_frontier(
+    maze: &Maze,
+    start: Coord,
+    channel_sender: &Sender<String>,
+    player_name: &str,
+) -> Option<Coord> {
+    use std::collections::{HashSet, VecDeque};
     let mut queue = VecDeque::new();
     let mut visited = HashSet::new();
     queue.push_back(start);
@@ -111,22 +151,37 @@ pub fn find_nearest_frontier(maze: &Maze, start: Coord, channel_sender: &Sender<
             send_log(
                 channel_sender,
                 player_name,
-                &format!("Test Voisin : {:?} (type: {:?})", neighbor, maze.get_cell(&neighbor)),
+                &format!(
+                    "Test Voisin : {:?} (type: {:?})",
+                    neighbor,
+                    maze.get_cell(&neighbor)
+                ),
                 Insignificant,
             );
             if maze.get_cell(&neighbor) == CellType::Unknown {
                 send_log(
                     channel_sender,
                     player_name,
-                    &format!("Cellule unknown trouvée : {:?} (type: {:?})", neighbor, maze.get_cell(&neighbor)),
+                    &format!(
+                        "Cellule unknown trouvée : {:?} (type: {:?})",
+                        neighbor,
+                        maze.get_cell(&neighbor)
+                    ),
                     Insignificant,
                 );
                 for adj in neighbors(neighbor) {
-                    if (maze.get_cell(&adj) == CellType::Free || maze.get_cell(&adj) == CellType::Ally) && adj != start {
+                    if (maze.get_cell(&adj) == CellType::Free
+                        || maze.get_cell(&adj) == CellType::Ally)
+                        && adj != start
+                    {
                         send_log(
                             channel_sender,
                             player_name,
-                            &format!("Frontière trouvée : {:?} (type: {:?})", neighbor, maze.get_cell(&neighbor)),
+                            &format!(
+                                "Frontière trouvée : {:?} (type: {:?})",
+                                neighbor,
+                                maze.get_cell(&neighbor)
+                            ),
                             Insignificant,
                         );
                         if neighbor.x % 2 == 0 && neighbor.y % 2 == 0 {
@@ -137,11 +192,18 @@ pub fn find_nearest_frontier(maze: &Maze, start: Coord, channel_sender: &Sender<
                 }
             }
             // Si ce n'est pas une frontière, continuer l'exploration BFS
-            if (maze.get_cell(&neighbor) == CellType::Free || maze.get_cell(&neighbor) == CellType::Ally)  && !visited.contains(&neighbor) {
+            if (maze.get_cell(&neighbor) == CellType::Free
+                || maze.get_cell(&neighbor) == CellType::Ally)
+                && !visited.contains(&neighbor)
+            {
                 send_log(
                     channel_sender,
                     player_name,
-                    &format!("Ajout du voisin en visité : {:?} (type: {:?})", neighbor, maze.get_cell(&neighbor)),
+                    &format!(
+                        "Ajout du voisin en visité : {:?} (type: {:?})",
+                        neighbor,
+                        maze.get_cell(&neighbor)
+                    ),
                     Insignificant,
                 );
                 visited.insert(neighbor);
@@ -150,51 +212,60 @@ pub fn find_nearest_frontier(maze: &Maze, start: Coord, channel_sender: &Sender<
         }
     }
 
-    send_log(channel_sender, player_name, "AUCUNE FRONTIERE TROUVEE, THREAD MIGHT PANIC.", Mandatory);
+    send_log(
+        channel_sender,
+        player_name,
+        "AUCUNE FRONTIERE TROUVEE, THREAD MIGHT PANIC.",
+        Mandatory,
+    );
     None
 }
 
-pub fn compute_direction(player_orientation: Orientation, wanted_direction: Orientation) -> RelativeDirection {
+pub fn compute_direction(
+    player_orientation: Orientation,
+    wanted_direction: Orientation,
+) -> RelativeDirection {
     // si je suis orienté vers l'est et que je veux aller vers le nord, je dois tourner à gauche
     // si je suis orienté vers l'est et que je veux aller vers le sud, je dois tourner à droite
     // etc...
     match player_orientation {
-        Orientation::North => {
-            match wanted_direction {
-                Orientation::North => RelativeDirection::Front,
-                Orientation::East => RelativeDirection::Right,
-                Orientation::South => RelativeDirection::Back,
-                Orientation::West => RelativeDirection::Left,
-            }
-        }
-        Orientation::East => {
-            match wanted_direction {
-                Orientation::North => RelativeDirection::Left,
-                Orientation::East => RelativeDirection::Front,
-                Orientation::South => RelativeDirection::Right,
-                Orientation::West => RelativeDirection::Back,
-            }
-        }
-        Orientation::South => {
-            match wanted_direction {
-                Orientation::North => RelativeDirection::Back,
-                Orientation::East => RelativeDirection::Left,
-                Orientation::South => RelativeDirection::Front,
-                Orientation::West => RelativeDirection::Right,
-            }
-        }
-        Orientation::West => {
-            match wanted_direction {
-                Orientation::North => RelativeDirection::Right,
-                Orientation::East => RelativeDirection::Back,
-                Orientation::South => RelativeDirection::Left,
-                Orientation::West => RelativeDirection::Front,
-            }
-        }
+        Orientation::North => match wanted_direction {
+            Orientation::North => RelativeDirection::Front,
+            Orientation::East => RelativeDirection::Right,
+            Orientation::South => RelativeDirection::Back,
+            Orientation::West => RelativeDirection::Left,
+        },
+        Orientation::East => match wanted_direction {
+            Orientation::North => RelativeDirection::Left,
+            Orientation::East => RelativeDirection::Front,
+            Orientation::South => RelativeDirection::Right,
+            Orientation::West => RelativeDirection::Back,
+        },
+        Orientation::South => match wanted_direction {
+            Orientation::North => RelativeDirection::Back,
+            Orientation::East => RelativeDirection::Left,
+            Orientation::South => RelativeDirection::Front,
+            Orientation::West => RelativeDirection::Right,
+        },
+        Orientation::West => match wanted_direction {
+            Orientation::North => RelativeDirection::Right,
+            Orientation::East => RelativeDirection::Back,
+            Orientation::South => RelativeDirection::Left,
+            Orientation::West => RelativeDirection::Front,
+        },
     }
 }
 
-pub fn move_to_next_step(player: &mut Player, player_tag: &str, next_step: Coord, channel_sender: &Sender<String>, tcp_stream: &mut TcpStream, last_action: &mut Option<Action>, last_player_coords: &mut Coord, last_player_orientation: &mut Orientation) {
+pub fn move_to_next_step(
+    player: &mut Player,
+    player_tag: &str,
+    next_step: Coord,
+    channel_sender: &Sender<String>,
+    tcp_stream: &mut TcpStream,
+    last_action: &mut Option<Action>,
+    last_player_coords: &mut Coord,
+    last_player_orientation: &mut Orientation,
+) {
     send_log(
         channel_sender,
         player_tag,
@@ -206,8 +277,11 @@ pub fn move_to_next_step(player: &mut Player, player_tag: &str, next_step: Coord
     send_log(
         channel_sender,
         player_tag,
-        &format!("Calcul du vecteur : next_step = {:?} et player.coords = {:?}", next_step, player.coords),
-        Insignificant
+        &format!(
+            "Calcul du vecteur : next_step = {:?} et player.coords = {:?}",
+            next_step, player.coords
+        ),
+        Insignificant,
     );
 
     // ex : next_step = Coord { x: -4, y: 2 } et player.coords = Coord { x: -4, y: 4 }
@@ -218,9 +292,8 @@ pub fn move_to_next_step(player: &mut Player, player_tag: &str, next_step: Coord
         channel_sender,
         player_tag,
         &format!("Vecteur calculé : dx = {}, dy = {}", dx, dy),
-        Insignificant
+        Insignificant,
     );
-
 
     // [2025-01-16 11:02:02] [Joueur_1] Chemin filtré : [Coord { x: -4, y: 2 }, Coord { x: -2, y: 2 }, Coord { x: -2, y: 4 }]
     // [2025-01-16 11:02:02] [Joueur_1] BEFORE MOVE : Coordonnées du joueur : Coord { x: -4, y: 4 }
@@ -230,15 +303,17 @@ pub fn move_to_next_step(player: &mut Player, player_tag: &str, next_step: Coord
     // [2025-01-16 11:02:02] [Joueur_1] AFTER MOVE : Coordonnées du joueur : Coord { x: -4, y: 6 }
     // [2025-01-16 11:02:02] [Joueur_1] AFTER MOVE : Orientation du joueur : North
 
-
     *last_player_orientation = player.orientation.clone();
     let mut direction = RelativeDirection::Front;
     if dx == 2 && dy == 0 {
         send_log(
             channel_sender,
             player_tag,
-            &format!("Déplacement vers est, orientation du joueur : {:?}", player.orientation),
-            Insignificant
+            &format!(
+                "Déplacement vers est, orientation du joueur : {:?}",
+                player.orientation
+            ),
+            Insignificant,
         );
         send_log(
             channel_sender,
@@ -258,8 +333,11 @@ pub fn move_to_next_step(player: &mut Player, player_tag: &str, next_step: Coord
         send_log(
             channel_sender,
             player_tag,
-            &format!("Déplacement vers ouest, orientation du joueur : {:?}", player.orientation),
-            Insignificant
+            &format!(
+                "Déplacement vers ouest, orientation du joueur : {:?}",
+                player.orientation
+            ),
+            Insignificant,
         );
         send_log(
             channel_sender,
@@ -279,8 +357,11 @@ pub fn move_to_next_step(player: &mut Player, player_tag: &str, next_step: Coord
         send_log(
             channel_sender,
             player_tag,
-            &format!("Déplacement vers nord, orientation du joueur : {:?}", player.orientation),
-            Insignificant
+            &format!(
+                "Déplacement vers nord, orientation du joueur : {:?}",
+                player.orientation
+            ),
+            Insignificant,
         );
         send_log(
             channel_sender,
@@ -301,8 +382,11 @@ pub fn move_to_next_step(player: &mut Player, player_tag: &str, next_step: Coord
         send_log(
             channel_sender,
             player_tag,
-            &format!("Déplacement vers sud, orientation du joueur : {:?}", player.orientation),
-            Insignificant
+            &format!(
+                "Déplacement vers sud, orientation du joueur : {:?}",
+                player.orientation
+            ),
+            Insignificant,
         );
         // log des directions calculables possibles
         send_log(
@@ -336,7 +420,11 @@ pub fn move_to_next_step(player: &mut Player, player_tag: &str, next_step: Coord
     send_log(
         channel_sender,
         player_tag,
-        &format!("Déplacement : {:?} (message : {:?})", direction.clone(), client_request),
+        &format!(
+            "Déplacement : {:?} (message : {:?})",
+            direction.clone(),
+            client_request
+        ),
         Medium,
     );
     send_encoded_message(tcp_stream, json_message);
@@ -353,7 +441,13 @@ pub fn move_to_next_step(player: &mut Player, player_tag: &str, next_step: Coord
     // player.coords = Coord { x: 24, y: 10 }
 }
 
-pub fn find_path_to_goal(start: Coord, goal: Coord, maze: &Maze, channel_sender: &Sender<String>, player_tag: &str) -> Vec<Coord> {
+pub fn find_path_to_goal(
+    start: Coord,
+    goal: Coord,
+    maze: &Maze,
+    channel_sender: &Sender<String>,
+    player_tag: &str,
+) -> Vec<Coord> {
     let mut queue: VecDeque<Coord> = VecDeque::new();
     let mut visited: HashSet<Coord> = HashSet::new();
     let mut parent_map: HashMap<Coord, Coord> = HashMap::new();
@@ -365,7 +459,10 @@ pub fn find_path_to_goal(start: Coord, goal: Coord, maze: &Maze, channel_sender:
     send_log(
         channel_sender,
         player_tag,
-        &format!("Début de la recherche du chemin : start={:?}, goal={:?}", start, goal),
+        &format!(
+            "Début de la recherche du chemin : start={:?}, goal={:?}",
+            start, goal
+        ),
         Minor,
     );
 
@@ -378,9 +475,19 @@ pub fn find_path_to_goal(start: Coord, goal: Coord, maze: &Maze, channel_sender:
             }
             path.reverse(); // On retourne le chemin pour partir du start
 
-            send_log(channel_sender, player_tag, &format!("Chemin trouvé : {:?}", path), Minor);
+            send_log(
+                channel_sender,
+                player_tag,
+                &format!("Chemin trouvé : {:?}", path),
+                Minor,
+            );
             if path.is_empty() {
-                send_log(channel_sender, player_tag, "!! WARNING !! : Aucun chemin trouvé (avant filtrage).", Mandatory);
+                send_log(
+                    channel_sender,
+                    player_tag,
+                    "!! WARNING !! : Aucun chemin trouvé (avant filtrage).",
+                    Mandatory,
+                );
             }
 
             // Filtrer les coordonnées impaires et retirer le start
@@ -397,7 +504,12 @@ pub fn find_path_to_goal(start: Coord, goal: Coord, maze: &Maze, channel_sender:
                 Medium,
             );
             if filtered_path.is_empty() {
-                send_log(channel_sender, player_tag, "!! WARNING !! : Aucun chemin trouvé (après filtrage).", Mandatory);
+                send_log(
+                    channel_sender,
+                    player_tag,
+                    "!! WARNING !! : Aucun chemin trouvé (après filtrage).",
+                    Mandatory,
+                );
             }
             return filtered_path;
         }
@@ -432,11 +544,22 @@ pub fn find_path_to_goal(start: Coord, goal: Coord, maze: &Maze, channel_sender:
     }
 
     // Si aucun chemin n'est trouvé, retourner un chemin vide
-    send_log(channel_sender, player_tag, "Aucun chemin trouvé.", Mandatory);
+    send_log(
+        channel_sender,
+        player_tag,
+        "Aucun chemin trouvé.",
+        Mandatory,
+    );
     Vec::new()
 }
 
-pub fn local_to_global(channel_sender: Sender<String>, player_tag: &str, player: &Player, x: i16, y: i16) -> (i16, i16) {
+pub fn local_to_global(
+    channel_sender: Sender<String>,
+    player_tag: &str,
+    player: &Player,
+    x: i16,
+    y: i16,
+) -> (i16, i16) {
     // -2 et -1 NORTH = -2,-1
     // -2 et -1 EAST = -1,2
     // -2 et -1 SOUTH = 2,1
@@ -444,22 +567,62 @@ pub fn local_to_global(channel_sender: Sender<String>, player_tag: &str, player:
     match player.orientation {
         Orientation::North => {
             // log : (0,0) + (-2,-1) = (-2,-1)
-            send_log(&channel_sender, &*player_tag, &format!("log : {:?} + {:?} = {:?}", player.coords, (x, y), (player.coords.x + x, player.coords.y + y)), Insignificant);
+            send_log(
+                &channel_sender,
+                &*player_tag,
+                &format!(
+                    "log : {:?} + {:?} = {:?}",
+                    player.coords,
+                    (x, y),
+                    (player.coords.x + x, player.coords.y + y)
+                ),
+                Insignificant,
+            );
             (player.coords.x + x, player.coords.y + y)
         }
         Orientation::East => {
             // log : (0,0) + (-2,-1) = (-1,2)
-            send_log(&channel_sender, &*player_tag, &format!("log : {:?} + {:?} = {:?}", player.coords, (y, -x), (player.coords.x + y, player.coords.y - x)), Insignificant);
+            send_log(
+                &channel_sender,
+                &*player_tag,
+                &format!(
+                    "log : {:?} + {:?} = {:?}",
+                    player.coords,
+                    (y, -x),
+                    (player.coords.x + y, player.coords.y - x)
+                ),
+                Insignificant,
+            );
             (player.coords.x + y, player.coords.y - x)
         }
         Orientation::South => {
             // log : (0,0) + (-2,-1) = (2,1)
-            send_log(&channel_sender, &*player_tag, &format!("log : {:?} + {:?} = {:?}", player.coords, (-x, -y), (player.coords.x - x, player.coords.y - y)), Insignificant);
+            send_log(
+                &channel_sender,
+                &*player_tag,
+                &format!(
+                    "log : {:?} + {:?} = {:?}",
+                    player.coords,
+                    (-x, -y),
+                    (player.coords.x - x, player.coords.y - y)
+                ),
+                Insignificant,
+            );
             (player.coords.x - x, player.coords.y - y)
         }
         Orientation::West => {
             // log : (0,0) + (-2,-1) = (1,-2)
-            send_log(&channel_sender, &*player_tag, &format!("log : {:?} + {:?} = {:?}", player.coords, (-y, x), (player.coords.x - y, player.coords.y + x)), Insignificant);
+            send_log(
+                &channel_sender,
+                &*player_tag,
+                &format!(
+                    "log : {:?} + {:?} = {:?}",
+                    player.coords,
+                    (-y, x),
+                    (player.coords.x - y, player.coords.y + x)
+                ),
+                Insignificant,
+            );
             (player.coords.x - y, player.coords.y + x)
         }
     }

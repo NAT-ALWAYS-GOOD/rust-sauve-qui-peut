@@ -7,9 +7,9 @@ pub fn decode_chelou64(input: &str, _debug: bool) -> Result<Vec<u8>, String> {
 
     fn decode_6bits_char(c: char) -> Option<u8> {
         match c {
-            'a'..='z' => Some(c as u8 - b'a'),                         // 0..25
-            'A'..='Z' => Some(26 + (c as u8 - b'A')),                  // 26..51
-            '0'..='9' => Some(52 + (c as u8 - b'0')),                  // 52..61
+            'a'..='z' => Some(c as u8 - b'a'),        // 0..25
+            'A'..='Z' => Some(26 + (c as u8 - b'A')), // 26..51
+            '0'..='9' => Some(52 + (c as u8 - b'0')), // 52..61
             '+' => Some(62),
             '/' => Some(63),
             _ => None,
@@ -65,7 +65,7 @@ pub fn push_str_debug(output: &mut String, debug: bool, message: &str) {
     }
 }
 
-pub fn decode_radar_data(decoded: &[u8], debug: bool) -> Result<(String, Vec<Vec<u8>>),String> {
+pub fn decode_radar_data(decoded: &[u8], debug: bool) -> Result<(String, Vec<Vec<u8>>), String> {
     if decoded.len() != 11 {
         return Err(format!(
             "Données incorrectes : {} octets reçus au lieu de 11",
@@ -76,11 +76,19 @@ pub fn decode_radar_data(decoded: &[u8], debug: bool) -> Result<(String, Vec<Vec
     let mut output = String::new();
 
     // Affichage des données brutes
-    push_str_debug(&mut output, debug, "=== Données brutes (6 premiers octets) ===\n");
+    push_str_debug(
+        &mut output,
+        debug,
+        "=== Données brutes (6 premiers octets) ===\n",
+    );
     for i in 0..6 {
         push_str_debug(&mut output, debug, &format!("{:08b} ", decoded[i]));
     }
-    push_str_debug(&mut output, debug, "\n=== Données brutes (5 derniers octets) ===\n");
+    push_str_debug(
+        &mut output,
+        debug,
+        "\n=== Données brutes (5 derniers octets) ===\n",
+    );
     for i in 6..11 {
         push_str_debug(&mut output, debug, &format!("{:02X} ", decoded[i]));
     }
@@ -88,59 +96,94 @@ pub fn decode_radar_data(decoded: &[u8], debug: bool) -> Result<(String, Vec<Vec
 
     let horiz_be = [decoded[0], decoded[1], decoded[2], 0];
     let horiz_bits = u32::from_le_bytes(horiz_be);
-    push_str_debug(&mut output, debug, &format!("Bits horizontaux (little-endian) : {:032b}\n", horiz_bits));
+    push_str_debug(
+        &mut output,
+        debug,
+        &format!("Bits horizontaux (little-endian) : {:032b}\n", horiz_bits),
+    );
 
     let mut horizontal_passages = Vec::with_capacity(12);
     for i in 0..12 {
         let shift = 24 - 2 * (i + 1); // Calculer la position des 2 bits à extraire
         let two_bits = (horiz_bits >> shift) & 0b11; // Extraire les 2 bits
-        push_str_debug(&mut output, debug, &format!("\nPassage '-' {} : {:b}", i + 1, two_bits as u8));
+        push_str_debug(
+            &mut output,
+            debug,
+            &format!("\nPassage '-' {} : {:b}", i + 1, two_bits as u8),
+        );
         horizontal_passages.push(two_bits as u8);
     }
 
     let vert_be = [decoded[3], decoded[4], decoded[5], 0];
     let vert_bits = u32::from_le_bytes(vert_be);
-    push_str_debug(&mut output, debug, &format!("Bits verticaux (little-endian) : {:032b}\n", vert_bits));
+    push_str_debug(
+        &mut output,
+        debug,
+        &format!("Bits verticaux (little-endian) : {:032b}\n", vert_bits),
+    );
 
     let mut vertical_passages = Vec::with_capacity(12);
     for i in 0..12 {
         let shift = 24 - 2 * (i + 1);
         let two_bits = (vert_bits >> shift) & 0b11;
-        push_str_debug(&mut output, debug, &format!("\nPassage '|' {} : {:b}", i + 1, two_bits as u8));
+        push_str_debug(
+            &mut output,
+            debug,
+            &format!("\nPassage '|' {} : {:b}", i + 1, two_bits as u8),
+        );
         vertical_passages.push(two_bits as u8);
     }
 
-    let cell_bytes = [
-        decoded[6], decoded[7],
-        decoded[8], decoded[9],
-        decoded[10],
-    ];
+    let cell_bytes = [decoded[6], decoded[7], decoded[8], decoded[9], decoded[10]];
 
     let cells = handle_cells(&mut output, cell_bytes, debug);
 
     let mut grid = vec![vec!["•".to_string(); 7]; 7];
-    let mut internal_grid : Vec<Vec<u8>> = vec![vec![2; 7]; 7];
+    let mut internal_grid: Vec<Vec<u8>> = vec![vec![2; 7]; 7];
 
     // Passages horizontaux
     let hcoords = [
-        (0, 1), (0, 3), (0, 5),
-        (2, 1), (2, 3), (2, 5),
-        (4, 1), (4, 3), (4, 5),
-        (6, 1), (6, 3), (6, 5),
+        (0, 1),
+        (0, 3),
+        (0, 5),
+        (2, 1),
+        (2, 3),
+        (2, 5),
+        (4, 1),
+        (4, 3),
+        (4, 5),
+        (6, 1),
+        (6, 3),
+        (6, 5),
     ];
 
     // Passages verticaux
     let vcoords = [
-        (1, 0), (1, 2), (1, 4), (1, 6),
-        (3, 0), (3, 2), (3, 4), (3, 6),
-        (5, 0), (5, 2), (5, 4), (5, 6),
+        (1, 0),
+        (1, 2),
+        (1, 4),
+        (1, 6),
+        (3, 0),
+        (3, 2),
+        (3, 4),
+        (3, 6),
+        (5, 0),
+        (5, 2),
+        (5, 4),
+        (5, 6),
     ];
 
     // Coordonnées cellules (3×3)
     let ccoords = [
-        (1, 1), (1, 3), (1, 5),
-        (3, 1), (3, 3), (3, 5),
-        (5, 1), (5, 3), (5, 5),
+        (1, 1),
+        (1, 3),
+        (1, 5),
+        (3, 1),
+        (3, 3),
+        (3, 5),
+        (5, 1),
+        (5, 3),
+        (5, 5),
     ];
 
     // On remplit la grille avec les passages horizontaux
@@ -181,7 +224,6 @@ pub fn decode_radar_data(decoded: &[u8], debug: bool) -> Result<(String, Vec<Vec
             0b1011 => 10,
             _ => 1,
         }
-
     }
 
     // Affichage de la grille
@@ -194,11 +236,15 @@ pub fn decode_radar_data(decoded: &[u8], debug: bool) -> Result<(String, Vec<Vec
     // Affichage de l'internal_grid
     output.push_str(&"\n=== Grille interne 7x7 ===\n".to_string());
     for row in 0..7 {
-        let row_str = internal_grid[row].iter().map(|&val| format!("{}", val)).collect::<Vec<_>>().join("");
+        let row_str = internal_grid[row]
+            .iter()
+            .map(|&val| format!("{}", val))
+            .collect::<Vec<_>>()
+            .join("");
         output.push_str(&format!("{}\n", row_str));
     }
 
-    Ok((output,internal_grid))
+    Ok((output, internal_grid))
 }
 
 pub fn handle_cells(output: &mut String, cell_bytes: [u8; 5], debug: bool) -> Vec<u8> {
@@ -223,7 +269,11 @@ pub fn handle_cells(output: &mut String, cell_bytes: [u8; 5], debug: bool) -> Ve
 
     push_str_debug(output, debug, "\n=== Cellules (9) ===\n");
     for (i, &val) in cells.iter().enumerate() {
-        push_str_debug(output, debug, &format!("Cellule {} => nibble=0x{:X}\n", i + 1, val));
+        push_str_debug(
+            output,
+            debug,
+            &format!("Cellule {} => nibble=0x{:X}\n", i + 1, val),
+        );
     }
 
     // Petit affichage pour debug sur les cellules
@@ -233,13 +283,17 @@ pub fn handle_cells(output: &mut String, cell_bytes: [u8; 5], debug: bool) -> Ve
         if cell_info != "Rien" && cell_info != "Undefined" {
             output.push_str("\n\nWARNING : CELLULE NON VIDE REPEREE\n\n");
         }
-        push_str_debug(output, debug, &format!(
-            "Cellule {}: b-{:04b} h-{:X} => \"{}\"\n",
-            i + 1,
-            val,
-            val,
-            cell_info
-        ));
+        push_str_debug(
+            output,
+            debug,
+            &format!(
+                "Cellule {}: b-{:04b} h-{:X} => \"{}\"\n",
+                i + 1,
+                val,
+                val,
+                cell_info
+            ),
+        );
     }
     push_str_debug(output, debug, "\n");
     cells.to_vec()
@@ -249,21 +303,21 @@ pub fn decode_cell_symbol(nibble: u8) -> String {
     if nibble == 0b1111 {
         return "#".to_string();
     }
-    let nature = (nibble & 0b1100) >> 2;  // bits 3..2
-    let entite = nibble & 0b0011;        // bits 1..0
+    let nature = (nibble & 0b1100) >> 2; // bits 3..2
+    let entite = nibble & 0b0011; // bits 1..0
 
     let nature_char = match nature {
-        0b00 => "",    // Rien
-        0b01 => "H",   // Indice
-        0b10 => "G",   // Objectif
-        0b11 => "?",   // Inconnu
+        0b00 => "",  // Rien
+        0b01 => "H", // Indice
+        0b10 => "G", // Objectif
+        0b11 => "?", // Inconnu
         _ => unreachable!(),
     };
     let entite_char = match entite {
-        0b00 => "",    // Aucune entité
-        0b01 => "P",   // Allié
-        0b10 => "O",   // Ennemi
-        0b11 => "M",   // Monstre
+        0b00 => "",  // Aucune entité
+        0b01 => "P", // Allié
+        0b10 => "O", // Ennemi
+        0b11 => "M", // Monstre
         _ => unreachable!(),
     };
 
@@ -302,7 +356,7 @@ pub fn decode_nature_et_entite(nibble: u8) -> (String, String) {
         0b00 => "",
         0b01 => "Indice",
         0b10 => "Objectif",
-        0b11 => "???",   // non précisé => on met ???
+        0b11 => "???", // non précisé => on met ???
         _ => unreachable!(),
     };
 
