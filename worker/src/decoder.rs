@@ -370,3 +370,49 @@ pub fn decode_nature_et_entite(nibble: u8) -> (String, String) {
 
     (nature_str.to_string(), entite_str.to_string())
 }
+
+#[cfg(test)]
+mod decoder_tests {
+    use super::*;
+
+    #[test]
+    fn should_decode_chelou64() {
+        let input = "ieysGjGO8papd/a".to_string();
+        let result = decode_chelou64(&input, false);
+        // we expect binary to be :
+        // 00100000 01000110 00010010 10000000 10011000 00101000 F0 F0 0F 0F F0
+        // so in decimal : 32 70 18 128 152 40 240 240 15 15 240
+        let vec1 = result.unwrap();
+        println!("{:?}", vec1);
+        assert_eq!(vec1, vec![32, 70, 18, 128, 152, 40, 240, 240, 15, 15, 240]);
+    }
+
+    #[test]
+    fn should_decode_radar_data() {
+        let input = vec![32, 70, 18, 128, 152, 40, 240, 240, 15, 15, 240];
+        let result = decode_radar_data(&input, false);
+        let (output, internal_grid) = result.unwrap();
+        println!("{}", output);
+        // we expect the grid to be :
+        //         ##• •##
+        //         ##| |##
+        //         •-• •##
+        //         |   |##
+        //         • •-•##
+        //         | #####
+        //         •-•####
+        // so :
+        assert_eq!(
+            internal_grid,
+            vec![
+                vec![2, 0, 2, 1, 2, 0, 2],
+                vec![0, 0, 2, 1, 2, 0, 0],
+                vec![2, 2, 2, 1, 2, 0, 2],
+                vec![2, 1, 1, 1, 2, 0, 0],
+                vec![2, 1, 2, 2, 2, 0, 2],
+                vec![2, 1, 0, 0, 0, 0, 0],
+                vec![2, 2, 2, 0, 2, 0, 2]
+            ]
+        );
+    }
+}

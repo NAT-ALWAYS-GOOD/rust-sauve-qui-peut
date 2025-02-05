@@ -147,3 +147,20 @@ pub fn neighbors(coord: Coord) -> Vec<Coord> {
         },
     ]
 }
+
+#[cfg(test)]
+mod maze_tests {
+    use super::*;
+
+    #[test]
+    fn test_neighbors() {
+        let coord = Coord { x: 0, y: 0 };
+        let expected = vec![
+            Coord { x: 0, y: 1 },
+            Coord { x: 0, y: -1 },
+            Coord { x: -1, y: 0 },
+            Coord { x: 1, y: 0 },
+        ];
+        assert_eq!(neighbors(coord), expected);
+    }
+}

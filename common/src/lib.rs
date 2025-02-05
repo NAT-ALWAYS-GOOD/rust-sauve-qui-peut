@@ -42,7 +42,7 @@ pub enum Action {
     SolveChallenge { answer: String },
 }
 
-#[derive(Serialize, Deserialize, Debug, Copy, Clone)]
+#[derive(Serialize, Deserialize, Debug, Copy, Clone, PartialEq, Eq)]
 pub enum RelativeDirection {
     Front,
     Right,

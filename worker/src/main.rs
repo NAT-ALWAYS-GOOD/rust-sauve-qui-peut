@@ -618,8 +618,7 @@ fn main() {
 
     let shared_numbers = Arc::new(Mutex::new(vec![0; 3]));
 
-    let mut index = 0;
-    for player in players {
+    for (index, player) in players.into_iter().enumerate() {
         let thread = launch_player_thread(
             server_address.parse().unwrap(),
             player.parse().unwrap(),
@@ -628,7 +627,6 @@ fn main() {
             Arc::clone(&shared_numbers),
             index,
         );
-        index += 1;
         threads.push(thread);
     }
 
