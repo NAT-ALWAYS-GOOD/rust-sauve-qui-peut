@@ -218,6 +218,8 @@ pub fn decode_radar_data(decoded: &[u8], debug: bool) -> Result<(String, Vec<Vec
             0b1111 => 0,
             0b0001 => 5,
             0b0101 => 5,
+            0b0010 => 6,
+            0b0110 => 6,
             0b1000 => 10,
             0b1001 => 10,
             0b1010 => 10,

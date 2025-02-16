@@ -56,6 +56,7 @@ pub enum ActionError {
     NoRunningChallenge,
     SolveChallengeFirst,
     InvalidChallengeSolution,
+    CannotPassThroughOpponent
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -95,6 +96,11 @@ pub fn receive_encoded_message<T>(tcp_stream: &mut TcpStream) -> T
 where
     T: serde::de::DeserializeOwned,
 {
+    // first check if the connection is still alive (without sending any data)
+    if let Err(e) = tcp_stream.peek(&mut [0u8]) {
+        eprintln!("Erreur lors de la réception du message : {}", e);
+        std::process::exit(1);
+    }
     let mut buffer = [0u8; 4];
     tcp_stream.read_exact(&mut buffer).unwrap();
     let message_size = u32::from_le_bytes(buffer) as usize;

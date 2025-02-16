@@ -6,6 +6,7 @@ use common::{send_encoded_message, Action, ClientRequest, RelativeDirection};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpStream;
 use std::sync::mpsc::Sender;
+use rand::Rng;
 
 pub struct AngleHint {
     pub coord: Coord,
@@ -92,6 +93,7 @@ pub fn process_radar_data(
                     1 => CellType::Free,
                     2 => CellType::Wall,
                     5 => CellType::Ally,
+                    6 => CellType::Enemy,
                     10 => CellType::Goal,
                     _ => CellType::Unknown,
                 };
@@ -115,6 +117,15 @@ pub fn process_radar_data(
                         channel_sender,
                         player_tag,
                         &format!("!!! Allié trouvé en {:?} !!!", (global_x, global_y)),
+                        Mandatory,
+                    );
+                }
+
+                if cell_type == CellType::Enemy {
+                    send_log(
+                        channel_sender,
+                        player_tag,
+                        &format!("!!! Ennemi trouvé en {:?} !!!", (global_x, global_y)),
                         Mandatory,
                     );
                 }
@@ -254,6 +265,37 @@ pub fn compute_direction(
             Orientation::West => RelativeDirection::Front,
         },
     }
+}
+
+pub fn move_to_next_step_random(
+    player_tag: &str,
+    channel_sender: &Sender<String>,
+    tcp_stream: &mut TcpStream,
+) {
+    let mut rng = rand::rng();
+    let random_direction = match rng.random_range(0..4) {
+        0 => RelativeDirection::Front,
+        1 => RelativeDirection::Right,
+        2 => RelativeDirection::Back,
+        3 => RelativeDirection::Left,
+        _ => RelativeDirection::Front,
+    };
+
+    let action = Action::MoveTo(random_direction);
+    let client_request = ClientRequest::Action(action.clone());
+    let json_message = serde_json::to_vec(&client_request).unwrap();
+
+    send_log(
+        channel_sender,
+        player_tag,
+        &format!(
+            "Déplacement : {:?} (message : {:?})",
+            random_direction.clone(),
+            client_request
+        ),
+        Medium,
+    );
+    send_encoded_message(tcp_stream, json_message);
 }
 
 pub fn move_to_next_step(

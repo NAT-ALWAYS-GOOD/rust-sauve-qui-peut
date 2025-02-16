@@ -6,9 +6,7 @@ mod solver;
 use crate::logger::send_log;
 use crate::logger::LogType::{Insignificant, Major, Mandatory, Medium, Minor};
 use crate::maze::{Coord, Maze, Orientation, Player};
-use crate::solver::{
-    find_nearest_frontier, find_path_to_goal, move_to_next_step, receive_radar_view, AngleHint,
-};
+use crate::solver::{find_nearest_frontier, find_path_to_goal, move_to_next_step, move_to_next_step_random, receive_radar_view, AngleHint};
 use common::{
     receive_encoded_message, send_encoded_message, Action, ClientRequest, RegisterTeamResult,
     ServerResponse, SubscribePlayerResult,
@@ -19,6 +17,297 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
+use rand::Rng;
+
+#[derive(Debug)]
+enum AlgorithmChoice {
+    Random,
+    PathFinding,
+}
+
+trait Algorithm: Send + Sync {
+    fn play_game(
+        &self,
+        channel_sender: Sender<String>,
+        player_name: String,
+        tcp_stream: &mut TcpStream,
+        shared_numbers: Arc<Mutex<Vec<u64>>>,
+        thread_index: usize,
+    );
+}
+
+struct RandomAlgorithm;
+impl Algorithm for RandomAlgorithm {
+    fn play_game(
+        &self,
+        channel_sender: Sender<String>,
+        player_name: String,
+        tcp_stream: &mut TcpStream,
+        shared_numbers: Arc<Mutex<Vec<u64>>>,
+        thread_index: usize,
+    ) {
+        let playing = true;
+
+        'gameloop: while playing {
+            match receive_encoded_message(tcp_stream) {
+                ServerResponse::RadarView(_radar_view) => {
+                    // FIXME: process radar view to check if we are at the goal
+
+                    move_to_next_step_random(
+                        &player_name,
+                        &channel_sender,
+                        tcp_stream,
+                    );
+                    thread::sleep(Duration::from_millis(50));
+                }
+                ServerResponse::Challenge(challenge) => {
+                    handle_challenge(
+                        challenge,
+                        &channel_sender,
+                        &*player_name,
+                        tcp_stream,
+                        &shared_numbers,
+                    );
+                }
+                ServerResponse::Hint(hint) => {
+                    handle_hint(
+                        hint,
+                        &channel_sender,
+                        &*player_name,
+                        &shared_numbers,
+                        thread_index,
+                        &mut vec![],
+                        None,
+                    );
+                }
+                ServerResponse::ActionError(action_error) => {
+                    send_log(
+                        &channel_sender,
+                        &*player_name,
+                        &format!("Erreur d'action reçue : {:?}", action_error),
+                        Minor,
+                    );
+                    continue 'gameloop;
+                }
+                msg => {
+                    send_log(
+                        &channel_sender,
+                        &*player_name,
+                        &format!("Message inattendu reçu : {:?}", msg),
+                        Mandatory,
+                    );
+                }
+            }
+        }
+    }
+}
+
+struct PathFindingAlgorithm;
+impl Algorithm for PathFindingAlgorithm {
+    fn play_game(
+        &self,
+        channel_sender: Sender<String>,
+        player_name: String,
+        tcp_stream: &mut TcpStream,
+        shared_numbers: Arc<Mutex<Vec<u64>>>,
+        thread_index: usize,
+    ) {
+        let debug = false;
+        let playing = true;
+        let mut player = Player {
+            coords: Coord { x: 0, y: 0 },
+            orientation: Orientation::North,
+        };
+        let mut maze = Maze::new();
+        let mut goal_cell: Option<Coord> = None;
+
+        let mut instructions: Vec<Coord> = vec![]; // liste des instructions pour atteindre l'objectif
+
+        let mut last_action: Option<Action> = None;
+        let mut last_player_coords: Coord = player.coords;
+        let mut last_player_orientation: Orientation = player.orientation;
+
+        let mut angle_hints: Vec<AngleHint> = Vec::new();
+
+        'gameloop: while playing {
+            match receive_encoded_message(tcp_stream) {
+                ServerResponse::RadarView(radar_view) => {
+                    let player_tag = format!("{}", player_name.clone());
+
+                    receive_radar_view(
+                        &channel_sender,
+                        &player_tag,
+                        debug,
+                        &mut player,
+                        &mut maze,
+                        &mut goal_cell,
+                        &radar_view,
+                    );
+
+                    if let Some(goal_coord) = goal_cell {
+                        if let Some(&last) = instructions.last() {
+                            if last != goal_coord {
+                                instructions.clear();
+                            }
+                        }
+                        send_log(
+                            &channel_sender,
+                            &*player_tag,
+                            &format!(
+                                "Objectif trouvé en {:?}, déplacement en cours...",
+                                goal_coord
+                            ),
+                            Major,
+                        );
+                        // if goal is on us, we don't need to move
+                        if player.coords == goal_coord {
+                            send_log(
+                                &channel_sender,
+                                &*player_tag,
+                                "Objectif atteint, attente de la suite...",
+                                Major,
+                            );
+                            continue 'gameloop;
+                        }
+                        instructions.extend(find_path_to_goal(
+                            player.coords,
+                            goal_coord,
+                            &mut maze,
+                            &channel_sender,
+                            &player_name,
+                        ));
+                        move_to_next_step(
+                            &mut player,
+                            &player_name,
+                            instructions.remove(0),
+                            &channel_sender,
+                            tcp_stream,
+                            &mut last_action,
+                            &mut last_player_coords,
+                            &mut last_player_orientation,
+                        );
+                        return;
+                    }
+
+                    if let Some(frontier) =
+                        find_nearest_frontier(&maze, player.coords, &channel_sender, &player_name)
+                    {
+                        instructions.clear();
+                        instructions.extend(find_path_to_goal(
+                            player.coords,
+                            frontier,
+                            &mut maze,
+                            &channel_sender,
+                            &player_name,
+                        ));
+                    }
+
+                    // before move instructions
+                    send_log(
+                        &channel_sender,
+                        &*player_tag,
+                        &format!("BEFORE MOVE : Instructions restantes : {:?}", instructions),
+                        Minor,
+                    );
+                    send_log(
+                        &channel_sender,
+                        &*player_tag,
+                        &format!("BEFORE MOVE : Coordonnées du joueur : {:?}", player.coords),
+                        Minor,
+                    );
+                    send_log(
+                        &channel_sender,
+                        &*player_tag,
+                        &format!(
+                            "BEFORE MOVE : Orientation du joueur : {:?}",
+                            player.orientation
+                        ),
+                        Minor,
+                    );
+                    move_to_next_step(
+                        &mut player,
+                        &player_name,
+                        instructions.remove(0),
+                        &channel_sender,
+                        tcp_stream,
+                        &mut last_action,
+                        &mut last_player_coords,
+                        &mut last_player_orientation,
+                    );
+                    send_log(
+                        &channel_sender,
+                        &*player_tag,
+                        &format!("AFTER MOVE : Coordonnées du joueur : {:?}", player.coords),
+                        Minor,
+                    );
+                    send_log(
+                        &channel_sender,
+                        &*player_tag,
+                        &format!(
+                            "AFTER MOVE : Orientation du joueur : {:?}",
+                            player.orientation
+                        ),
+                        Minor,
+                    );
+
+                    send_log(
+                        &channel_sender,
+                        &*player_tag,
+                        "Dodo pendant 0,20 secondes...",
+                        Insignificant,
+                    );
+                    thread::sleep(Duration::from_millis(50));
+                }
+                ServerResponse::Challenge(challenge) => {
+                    handle_challenge(
+                        challenge,
+                        &channel_sender,
+                        &*player_name,
+                        tcp_stream,
+                        &shared_numbers,
+                    );
+                }
+                ServerResponse::Hint(hint) => {
+                    let next = handle_hint(
+                        hint,
+                        &channel_sender,
+                        &*player_name,
+                        &shared_numbers,
+                        thread_index,
+                        &mut angle_hints,
+                        Some(&player),
+                    );
+                    if next {
+                        continue 'gameloop;
+                    }
+                }
+                ServerResponse::ActionError(action_error) => {
+                    let fatal = handle_action_error(
+                        action_error,
+                        &channel_sender,
+                        &*player_name,
+                        &mut last_action,
+                        &mut player,
+                        &mut last_player_coords,
+                        &mut last_player_orientation,
+                    );
+                    if fatal {
+                        break 'gameloop;
+                    }
+                }
+                msg => {
+                    send_log(
+                        &channel_sender,
+                        &*player_name,
+                        &format!("Message inattendu reçu : {:?}", msg),
+                        Mandatory,
+                    );
+                }
+            }
+        }
+    }
+}
+
 
 fn register_team(channel_sender: &Sender<String>, server_address: &str) -> Option<String> {
     send_log(
@@ -60,9 +349,9 @@ fn register_team(channel_sender: &Sender<String>, server_address: &str) -> Optio
             );
             match receive_encoded_message(&mut stream) {
                 ServerResponse::RegisterTeamResult(RegisterTeamResult::Ok {
-                    expected_players,
-                    registration_token,
-                }) => {
+                                                       expected_players,
+                                                       registration_token,
+                                                   }) => {
                     send_log(
                         channel_sender,
                         team_tag,
@@ -170,6 +459,7 @@ fn launch_player_thread(
     reg_token_cloned: String,
     shared_numbers: Arc<Mutex<Vec<u64>>>,
     thread_index: usize,
+    algorithm: Arc<dyn Algorithm>,
 ) -> JoinHandle<()> {
     thread::Builder::new()
         .name(player.clone())
@@ -196,7 +486,7 @@ fn launch_player_thread(
                     );
                     return;
                 } else {
-                    play_game(
+                    algorithm.play_game(
                         channel_sender_cloned,
                         player,
                         &mut stream,
@@ -217,198 +507,6 @@ fn launch_player_thread(
         .unwrap()
 }
 
-fn play_game(
-    channel_sender: Sender<String>,
-    player_name: String,
-    tcp_stream: &mut TcpStream,
-    shared_numbers: Arc<Mutex<Vec<u64>>>,
-    thread_index: usize,
-) {
-    let debug = false;
-    let playing = true;
-    let mut player = Player {
-        coords: Coord { x: 0, y: 0 },
-        orientation: Orientation::North,
-    };
-    let mut maze = Maze::new();
-    let mut goal_cell: Option<Coord> = None;
-
-    let mut instructions: Vec<Coord> = vec![]; // liste des instructions pour atteindre l'objectif
-
-    let mut last_action: Option<Action> = None;
-    let mut last_player_coords: Coord = player.coords;
-    let mut last_player_orientation: Orientation = player.orientation;
-
-    let mut angle_hints: Vec<AngleHint> = Vec::new();
-
-    'gameloop: while playing {
-        match receive_encoded_message(tcp_stream) {
-            ServerResponse::RadarView(radar_view) => {
-                let player_tag = format!("{}", player_name.clone());
-
-                receive_radar_view(
-                    &channel_sender,
-                    &player_tag,
-                    debug,
-                    &mut player,
-                    &mut maze,
-                    &mut goal_cell,
-                    &radar_view,
-                );
-
-                if let Some(goal_coord) = goal_cell {
-                    if let Some(&last) = instructions.last() {
-                        if last != goal_coord {
-                            instructions.clear();
-                        }
-                    }
-                    send_log(
-                        &channel_sender,
-                        &*player_tag,
-                        &format!(
-                            "Objectif trouvé en {:?}, déplacement en cours...",
-                            goal_coord
-                        ),
-                        Major,
-                    );
-                    instructions.extend(find_path_to_goal(
-                        player.coords,
-                        goal_coord,
-                        &mut maze,
-                        &channel_sender,
-                        &player_name,
-                    ));
-                    move_to_next_step(
-                        &mut player,
-                        &player_name,
-                        instructions.remove(0),
-                        &channel_sender,
-                        tcp_stream,
-                        &mut last_action,
-                        &mut last_player_coords,
-                        &mut last_player_orientation,
-                    );
-                    return;
-                }
-
-                if let Some(frontier) =
-                    find_nearest_frontier(&maze, player.coords, &channel_sender, &player_name)
-                {
-                    instructions.clear();
-                    instructions.extend(find_path_to_goal(
-                        player.coords,
-                        frontier,
-                        &mut maze,
-                        &channel_sender,
-                        &player_name,
-                    ));
-                }
-
-                // before move instructions
-                send_log(
-                    &channel_sender,
-                    &*player_tag,
-                    &format!("BEFORE MOVE : Instructions restantes : {:?}", instructions),
-                    Minor,
-                );
-                send_log(
-                    &channel_sender,
-                    &*player_tag,
-                    &format!("BEFORE MOVE : Coordonnées du joueur : {:?}", player.coords),
-                    Minor,
-                );
-                send_log(
-                    &channel_sender,
-                    &*player_tag,
-                    &format!(
-                        "BEFORE MOVE : Orientation du joueur : {:?}",
-                        player.orientation
-                    ),
-                    Minor,
-                );
-                move_to_next_step(
-                    &mut player,
-                    &player_name,
-                    instructions.remove(0),
-                    &channel_sender,
-                    tcp_stream,
-                    &mut last_action,
-                    &mut last_player_coords,
-                    &mut last_player_orientation,
-                );
-                send_log(
-                    &channel_sender,
-                    &*player_tag,
-                    &format!("AFTER MOVE : Coordonnées du joueur : {:?}", player.coords),
-                    Minor,
-                );
-                send_log(
-                    &channel_sender,
-                    &*player_tag,
-                    &format!(
-                        "AFTER MOVE : Orientation du joueur : {:?}",
-                        player.orientation
-                    ),
-                    Minor,
-                );
-
-                send_log(
-                    &channel_sender,
-                    &*player_tag,
-                    "Dodo pendant 0,20 secondes...",
-                    Insignificant,
-                );
-                thread::sleep(Duration::from_millis(50));
-            }
-            ServerResponse::Challenge(challenge) => {
-                handle_challenge(
-                    challenge,
-                    &channel_sender,
-                    &*player_name,
-                    tcp_stream,
-                    &shared_numbers,
-                );
-            }
-            ServerResponse::Hint(hint) => {
-                let next = handle_hint(
-                    hint,
-                    &channel_sender,
-                    &*player_name,
-                    &shared_numbers,
-                    thread_index,
-                    &mut angle_hints,
-                    &player,
-                );
-                if next {
-                    continue 'gameloop;
-                }
-            }
-            ServerResponse::ActionError(action_error) => {
-                let fatal = handle_action_error(
-                    action_error,
-                    &channel_sender,
-                    &*player_name,
-                    &mut last_action,
-                    &mut player,
-                    &mut last_player_coords,
-                    &mut last_player_orientation,
-                );
-                if fatal {
-                    break 'gameloop;
-                }
-            }
-            msg => {
-                send_log(
-                    &channel_sender,
-                    &*player_name,
-                    &format!("Message inattendu reçu : {:?}", msg),
-                    Mandatory,
-                );
-            }
-        }
-    }
-}
-
 fn handle_hint(
     hint: common::Hint,
     channel_sender: &Sender<String>,
@@ -416,7 +514,7 @@ fn handle_hint(
     shared_numbers: &Arc<Mutex<Vec<u64>>>,
     thread_index: usize,
     angle_hints: &mut Vec<AngleHint>,
-    player: &Player,
+    player: Option<&Player>,
 ) -> bool {
     send_log(
         channel_sender,
@@ -454,12 +552,17 @@ fn handle_hint(
                 &format!("Indication de direction relative : angle = {}", angle),
                 Mandatory,
             );
-            angle_hints.push(AngleHint {
-                coord: player.coords,
-                orientation: player.orientation,
-                angle,
-            });
-            true
+            match player {
+                None => true,
+                Some(player) => {
+                    angle_hints.push(AngleHint {
+                        coord: player.coords,
+                        orientation: player.orientation,
+                        angle,
+                    });
+                    true
+                }
+            }
         }
     }
 }
@@ -487,20 +590,7 @@ fn handle_action_error(
                 "Impossible de passer à travers un mur",
                 Mandatory,
             );
-            player.coords = *last_player_coords;
-            player.orientation = *last_player_orientation;
-            send_log(
-                channel_sender,
-                player_name,
-                &format!("Cancel de l'action précédente : {:?}", last_action),
-                Medium,
-            );
-            send_log(
-                channel_sender,
-                player_name,
-                &format!("Nouvelles coordonnées du joueur : {:?}", last_player_coords),
-                Medium,
-            );
+            cancel_action(channel_sender, player_name, &last_action, player, &last_player_coords, last_player_orientation);
         }
         common::ActionError::NoRunningChallenge => {
             send_log(
@@ -517,6 +607,7 @@ fn handle_action_error(
                 "Résoudre le challenge en cours avant de se déplacer",
                 Mandatory,
             );
+            cancel_action(channel_sender, player_name, &last_action, player, &last_player_coords, last_player_orientation);
         }
         common::ActionError::InvalidChallengeSolution => {
             send_log(
@@ -527,8 +618,34 @@ fn handle_action_error(
             );
             return true;
         }
+        common::ActionError::CannotPassThroughOpponent => {
+            send_log(
+                channel_sender,
+                player_name,
+                "Impossible de passer à travers un adversaire",
+                Mandatory,
+            );
+            cancel_action(channel_sender, player_name, &last_action, player, &last_player_coords, last_player_orientation);
+        }
     }
     false
+}
+
+fn cancel_action(channel_sender: &Sender<String>, player_name: &str, last_action: &&mut Option<Action>, player: &mut Player, last_player_coords: &&mut Coord, last_player_orientation: &mut Orientation) {
+    player.coords = **last_player_coords;
+    player.orientation = *last_player_orientation;
+    send_log(
+        channel_sender,
+        player_name,
+        &format!("Cancel de l'action précédente : {:?}", last_action),
+        Medium,
+    );
+    send_log(
+        channel_sender,
+        player_name,
+        &format!("Nouvelles coordonnées du joueur : {:?}", last_player_coords),
+        Medium,
+    );
 }
 
 fn handle_challenge(
@@ -618,6 +735,24 @@ fn main() {
 
     let shared_numbers = Arc::new(Mutex::new(vec![0; 3]));
 
+    let algorithm_choice : AlgorithmChoice = if rand::rng().random_bool(0.5) {
+        AlgorithmChoice::Random
+    } else {
+        AlgorithmChoice::PathFinding
+    };
+
+    let algorithm : Arc<dyn Algorithm + Send + Sync> = match algorithm_choice {
+        AlgorithmChoice::Random => Arc::new(RandomAlgorithm) as Arc<dyn Algorithm + Send + Sync>,
+        AlgorithmChoice::PathFinding => Arc::new(PathFindingAlgorithm) as Arc<dyn Algorithm + Send + Sync>,
+    };
+
+    send_log(
+        &channel_sender,
+        "Main",
+        &format!("Algorithme choisi : {:?}", algorithm_choice),
+        Major,
+    );
+
     for (index, player) in players.into_iter().enumerate() {
         let thread = launch_player_thread(
             server_address.parse().unwrap(),
@@ -626,6 +761,7 @@ fn main() {
             reg_token.clone(),
             Arc::clone(&shared_numbers),
             index,
+            algorithm.clone(),
         );
         threads.push(thread);
     }
