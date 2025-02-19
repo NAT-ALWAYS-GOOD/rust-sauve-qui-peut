@@ -132,6 +132,16 @@ impl Algorithm for PathFindingAlgorithm {
         'gameloop: while playing {
             match receive_encoded_message(tcp_stream) {
                 ServerResponse::RadarView(radar_view) => {
+                    // log angle hints
+                    for angle_hint in angle_hints.iter() {
+                        send_log(
+                            &channel_sender,
+                            &*player_name,
+                            &format!("Angle hint: coords {:?}, orientation {:?}, angle {}", angle_hint.coord, angle_hint.orientation, angle_hint.angle),
+                            Minor,
+                        );
+                    }
+
                     let player_tag = format!("{}", player_name.clone());
 
                     receive_radar_view(
