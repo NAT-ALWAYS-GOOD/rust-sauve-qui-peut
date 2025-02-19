@@ -6,18 +6,21 @@ mod solver;
 use crate::logger::send_log;
 use crate::logger::LogType::{Insignificant, Major, Mandatory, Medium, Minor};
 use crate::maze::{Coord, Maze, Orientation, Player};
-use crate::solver::{find_nearest_frontier, find_path_to_goal, move_to_next_step, move_to_next_step_random, receive_radar_view, AngleHint};
+use crate::solver::{
+    find_nearest_frontier, find_path_to_goal, move_to_next_step, move_to_next_step_random,
+    receive_radar_view, AngleHint,
+};
 use common::{
     receive_encoded_message, send_encoded_message, Action, ClientRequest, RegisterTeamResult,
     ServerResponse, SubscribePlayerResult,
 };
+use rand::Rng;
 use std::net::TcpStream;
 use std::sync::mpsc::Sender;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
-use rand::Rng;
 
 #[derive(Debug)]
 enum AlgorithmChoice {
@@ -53,11 +56,7 @@ impl Algorithm for RandomAlgorithm {
                 ServerResponse::RadarView(_radar_view) => {
                     // FIXME: process radar view to check if we are at the goal
 
-                    move_to_next_step_random(
-                        &player_name,
-                        &channel_sender,
-                        tcp_stream,
-                    );
+                    move_to_next_step_random(&player_name, &channel_sender, tcp_stream);
                     thread::sleep(Duration::from_millis(50));
                 }
                 ServerResponse::Challenge(challenge) => {
@@ -137,7 +136,10 @@ impl Algorithm for PathFindingAlgorithm {
                         send_log(
                             &channel_sender,
                             &*player_name,
-                            &format!("Angle hint: coords {:?}, orientation {:?}, angle {}", angle_hint.coord, angle_hint.orientation, angle_hint.angle),
+                            &format!(
+                                "Angle hint: coords {:?}, orientation {:?}, angle {}",
+                                angle_hint.coord, angle_hint.orientation, angle_hint.angle
+                            ),
                             Minor,
                         );
                     }
@@ -318,7 +320,6 @@ impl Algorithm for PathFindingAlgorithm {
     }
 }
 
-
 fn register_team(channel_sender: &Sender<String>, server_address: &str) -> Option<String> {
     send_log(
         channel_sender,
@@ -359,9 +360,9 @@ fn register_team(channel_sender: &Sender<String>, server_address: &str) -> Optio
             );
             match receive_encoded_message(&mut stream) {
                 ServerResponse::RegisterTeamResult(RegisterTeamResult::Ok {
-                                                       expected_players,
-                                                       registration_token,
-                                                   }) => {
+                    expected_players,
+                    registration_token,
+                }) => {
                     send_log(
                         channel_sender,
                         team_tag,
@@ -600,7 +601,14 @@ fn handle_action_error(
                 "Impossible de passer à travers un mur",
                 Mandatory,
             );
-            cancel_action(channel_sender, player_name, &last_action, player, &last_player_coords, last_player_orientation);
+            cancel_action(
+                channel_sender,
+                player_name,
+                &last_action,
+                player,
+                &last_player_coords,
+                last_player_orientation,
+            );
         }
         common::ActionError::NoRunningChallenge => {
             send_log(
@@ -617,7 +625,14 @@ fn handle_action_error(
                 "Résoudre le challenge en cours avant de se déplacer",
                 Mandatory,
             );
-            cancel_action(channel_sender, player_name, &last_action, player, &last_player_coords, last_player_orientation);
+            cancel_action(
+                channel_sender,
+                player_name,
+                &last_action,
+                player,
+                &last_player_coords,
+                last_player_orientation,
+            );
         }
         common::ActionError::InvalidChallengeSolution => {
             send_log(
@@ -635,13 +650,27 @@ fn handle_action_error(
                 "Impossible de passer à travers un adversaire",
                 Mandatory,
             );
-            cancel_action(channel_sender, player_name, &last_action, player, &last_player_coords, last_player_orientation);
+            cancel_action(
+                channel_sender,
+                player_name,
+                &last_action,
+                player,
+                &last_player_coords,
+                last_player_orientation,
+            );
         }
     }
     false
 }
 
-fn cancel_action(channel_sender: &Sender<String>, player_name: &str, last_action: &&mut Option<Action>, player: &mut Player, last_player_coords: &&mut Coord, last_player_orientation: &mut Orientation) {
+fn cancel_action(
+    channel_sender: &Sender<String>,
+    player_name: &str,
+    last_action: &&mut Option<Action>,
+    player: &mut Player,
+    last_player_coords: &&mut Coord,
+    last_player_orientation: &mut Orientation,
+) {
     player.coords = **last_player_coords;
     player.orientation = *last_player_orientation;
     send_log(
@@ -745,15 +774,17 @@ fn main() {
 
     let shared_numbers = Arc::new(Mutex::new(vec![0; 3]));
 
-    let algorithm_choice : AlgorithmChoice = if rand::rng().random_bool(0.5) {
+    let algorithm_choice: AlgorithmChoice = if rand::rng().random_bool(0.5) {
         AlgorithmChoice::Random
     } else {
         AlgorithmChoice::PathFinding
     };
 
-    let algorithm : Arc<dyn Algorithm + Send + Sync> = match algorithm_choice {
+    let algorithm: Arc<dyn Algorithm + Send + Sync> = match algorithm_choice {
         AlgorithmChoice::Random => Arc::new(RandomAlgorithm) as Arc<dyn Algorithm + Send + Sync>,
-        AlgorithmChoice::PathFinding => Arc::new(PathFindingAlgorithm) as Arc<dyn Algorithm + Send + Sync>,
+        AlgorithmChoice::PathFinding => {
+            Arc::new(PathFindingAlgorithm) as Arc<dyn Algorithm + Send + Sync>
+        }
     };
 
     send_log(

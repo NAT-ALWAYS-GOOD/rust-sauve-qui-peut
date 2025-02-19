@@ -1,8 +1,8 @@
+use crate::logger::LogType::Major;
 use chrono::Local;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::sync::mpsc::Sender;
-use crate::logger::LogType::Major;
 
 pub enum LogType {
     Insignificant,
@@ -47,7 +47,6 @@ fn store_log_to_file(tag: &str, message: &str, now: chrono::DateTime<Local>) {
         );
     }
 }
-
 
 #[cfg(test)]
 mod logger_tests {
