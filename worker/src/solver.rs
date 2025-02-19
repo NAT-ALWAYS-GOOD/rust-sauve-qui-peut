@@ -8,6 +8,7 @@ use std::net::TcpStream;
 use std::sync::mpsc::Sender;
 use rand::Rng;
 
+#[derive(Debug)]
 pub struct AngleHint {
     pub coord: Coord,
     pub orientation: Orientation,
@@ -667,5 +668,116 @@ pub fn local_to_global(
             );
             (player.coords.x - y, player.coords.y + x)
         }
+    }
+}
+
+#[cfg(test)]
+mod solver_tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_direction() {
+        assert_eq!(
+            compute_direction(Orientation::North, Orientation::North),
+            RelativeDirection::Front
+        );
+        assert_eq!(
+            compute_direction(Orientation::North, Orientation::East),
+            RelativeDirection::Right
+        );
+        assert_eq!(
+            compute_direction(Orientation::North, Orientation::South),
+            RelativeDirection::Back
+        );
+        assert_eq!(
+            compute_direction(Orientation::North, Orientation::West),
+            RelativeDirection::Left
+        );
+
+        assert_eq!(
+            compute_direction(Orientation::East, Orientation::North),
+            RelativeDirection::Left
+        );
+        assert_eq!(
+            compute_direction(Orientation::East, Orientation::East),
+            RelativeDirection::Front
+        );
+        assert_eq!(
+            compute_direction(Orientation::East, Orientation::South),
+            RelativeDirection::Right
+        );
+        assert_eq!(
+            compute_direction(Orientation::East, Orientation::West),
+            RelativeDirection::Back
+        );
+
+        assert_eq!(
+            compute_direction(Orientation::South, Orientation::North),
+            RelativeDirection::Back
+        );
+        assert_eq!(
+            compute_direction(Orientation::South, Orientation::East),
+            RelativeDirection::Left
+        );
+        assert_eq!(
+            compute_direction(Orientation::South, Orientation::South),
+            RelativeDirection::Front
+        );
+        assert_eq!(
+            compute_direction(Orientation::South, Orientation::West),
+            RelativeDirection::Right
+        );
+
+        assert_eq!(
+            compute_direction(Orientation::West, Orientation::North),
+            RelativeDirection::Right
+        );
+        assert_eq!(
+            compute_direction(Orientation::West, Orientation::East),
+            RelativeDirection::Back
+        );
+        assert_eq!(
+            compute_direction(Orientation::West, Orientation::South),
+            RelativeDirection::Left
+        );
+        assert_eq!(
+            compute_direction(Orientation::West, Orientation::West),
+            RelativeDirection::Front
+        );
+    }
+
+    #[test]
+    fn test_local_to_global() {
+        let (sender, _receiver) = std::sync::mpsc::channel();
+        let player = Player {
+            coords: Coord { x: 0, y: 0 },
+            orientation: Orientation::East,
+        };
+        let (x, y) = local_to_global(sender.clone(), "Test", &player, -2, -1);
+        assert_eq!(x, -1);
+        assert_eq!(y, 2);
+    }
+
+    #[test]
+    fn test_find_nearest_frontier() {
+        let (sender, _receiver) = std::sync::mpsc::channel();
+        let mut maze = Maze::new();
+        maze.set_cell(Coord { x: 0, y: 0 }, CellType::Free);
+        maze.set_cell(Coord { x: 0, y: 1 }, CellType::Wall);
+        maze.set_cell(Coord { x: 1, y: 0 }, CellType::Wall);
+        maze.set_cell(Coord { x: -1, y: 0 }, CellType::Wall);
+        maze.set_cell(Coord { x: 0, y: -1 }, CellType::Free);
+        maze.set_cell(Coord { x: -1, y: -1 }, CellType::Wall);
+        maze.set_cell(Coord { x: 1, y: -1 }, CellType::Wall);
+        maze.set_cell(Coord { x: 0, y: -2 }, CellType::Free);
+        maze.set_cell(Coord { x: 1, y: -2 }, CellType::Wall);
+        maze.set_cell(Coord { x: -1, y: -2 }, CellType::Wall);
+        maze.set_cell(Coord { x: 0, y: -3 }, CellType::Free);
+        maze.set_cell(Coord { x: 1, y: -3 }, CellType::Wall);
+        maze.set_cell(Coord { x: -1, y: -3 }, CellType::Wall);
+
+
+        let frontier = find_nearest_frontier(&maze, Coord { x: 0, y: 0 }, &sender, "Test");
+        assert_eq!(frontier, Some(Coord { x: 0, y: -4 }));
     }
 }
