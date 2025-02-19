@@ -3,10 +3,10 @@ use crate::logger::send_log;
 use crate::logger::LogType::{Insignificant, Mandatory, Medium, Minor};
 use crate::maze::{neighbors, CellType, Coord, Maze, Orientation, Player};
 use common::{send_encoded_message, Action, ClientRequest, RelativeDirection};
+use rand::Rng;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpStream;
 use std::sync::mpsc::Sender;
-use rand::Rng;
 
 #[derive(Debug)]
 pub struct AngleHint {
@@ -776,8 +776,35 @@ mod solver_tests {
         maze.set_cell(Coord { x: 1, y: -3 }, CellType::Wall);
         maze.set_cell(Coord { x: -1, y: -3 }, CellType::Wall);
 
-
         let frontier = find_nearest_frontier(&maze, Coord { x: 0, y: 0 }, &sender, "Test");
         assert_eq!(frontier, Some(Coord { x: 0, y: -4 }));
+    }
+
+    #[test]
+    fn test_find_path_to_goal() {
+        let (sender, _receiver) = std::sync::mpsc::channel();
+        let mut maze = Maze::new();
+        maze.set_cell(Coord { x: 0, y: 0 }, CellType::Free);
+        maze.set_cell(Coord { x: 0, y: 1 }, CellType::Wall);
+        maze.set_cell(Coord { x: 1, y: 0 }, CellType::Wall);
+        maze.set_cell(Coord { x: -1, y: 0 }, CellType::Wall);
+        maze.set_cell(Coord { x: 0, y: -1 }, CellType::Free);
+        maze.set_cell(Coord { x: -1, y: -1 }, CellType::Wall);
+        maze.set_cell(Coord { x: 1, y: -1 }, CellType::Wall);
+        maze.set_cell(Coord { x: 0, y: -2 }, CellType::Free);
+        maze.set_cell(Coord { x: 1, y: -2 }, CellType::Wall);
+        maze.set_cell(Coord { x: -1, y: -2 }, CellType::Wall);
+        maze.set_cell(Coord { x: 0, y: -3 }, CellType::Free);
+        maze.set_cell(Coord { x: 1, y: -3 }, CellType::Wall);
+        maze.set_cell(Coord { x: -1, y: -3 }, CellType::Wall);
+
+        let path = find_path_to_goal(
+            Coord { x: 0, y: 0 },
+            Coord { x: 0, y: -4 },
+            &maze,
+            &sender,
+            "Test",
+        );
+        assert_eq!(path, vec![Coord { x: 0, y: -2 }, Coord { x: 0, y: -4 }]);
     }
 }
