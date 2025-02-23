@@ -179,7 +179,7 @@ impl Algorithm for PathFindingAlgorithm {
                                 "Objectif atteint, attente de la suite...",
                                 Major,
                             );
-                            continue 'gameloop;
+                            return;
                         }
                         instructions.extend(find_path_to_goal(
                             player.coords,
@@ -198,7 +198,7 @@ impl Algorithm for PathFindingAlgorithm {
                             &mut last_player_coords,
                             &mut last_player_orientation,
                         );
-                        return;
+                        continue 'gameloop;
                     }
 
                     if let Some(frontier) =
@@ -320,7 +320,7 @@ impl Algorithm for PathFindingAlgorithm {
     }
 }
 
-fn register_team(channel_sender: &Sender<String>, server_address: &str) -> Option<String> {
+fn register_team(channel_sender: &Sender<String>, server_address: &str) -> Option<(String, u8)> {
     send_log(
         channel_sender,
         "Main",
@@ -337,7 +337,7 @@ fn register_team(channel_sender: &Sender<String>, server_address: &str) -> Optio
                 Minor,
             );
 
-            let team_name = format!("NAT Team {}", rand::random::<u32>());
+            let team_name = "4AL1 Groupe 6".to_string();
             let register_team = ClientRequest::RegisterTeam { name: team_name };
 
             send_log(
@@ -360,9 +360,9 @@ fn register_team(channel_sender: &Sender<String>, server_address: &str) -> Optio
             );
             match receive_encoded_message(&mut stream) {
                 ServerResponse::RegisterTeamResult(RegisterTeamResult::Ok {
-                    expected_players,
-                    registration_token,
-                }) => {
+                                                       expected_players,
+                                                       registration_token,
+                                                   }) => {
                     send_log(
                         channel_sender,
                         team_tag,
@@ -372,7 +372,7 @@ fn register_team(channel_sender: &Sender<String>, server_address: &str) -> Optio
                         ),
                         Medium,
                     );
-                    Some(registration_token)
+                    Some((registration_token, expected_players))
                 }
                 ServerResponse::RegisterTeamResult(RegisterTeamResult::Err(error)) => {
                     send_log(
@@ -753,7 +753,7 @@ fn main() {
 
     send_log(&channel_sender, "Main", "Connexion au serveur...", Major);
 
-    let reg_token = match register_team(&channel_sender, server_address) {
+    let (reg_token, expected_players) = match register_team(&channel_sender, server_address) {
         Some(token) => token,
         None => {
             send_log(
@@ -769,12 +769,16 @@ fn main() {
         }
     };
 
-    let players = vec!["Joueur 1", "Joueur 2", "Joueur 3"];
+    // let players = vec!["Joueur 1", "Joueur 2", "Joueur 3"];
+    // create a vec with players names as "Joueur X", depending on the number of expected players
+    let players: Vec<String> = (0..expected_players)
+        .map(|i| format!("Joueur {}", i + 1))
+        .collect();
+
     let mut threads = vec![];
+    let shared_numbers = Arc::new(Mutex::new(vec![0; expected_players as usize]));
 
-    let shared_numbers = Arc::new(Mutex::new(vec![0; 3]));
-
-    let algorithm_choice: AlgorithmChoice = if rand::rng().random_bool(0.5) {
+    let algorithm_choice: AlgorithmChoice = if rand::rng().random_bool(0.0) {
         AlgorithmChoice::Random
     } else {
         AlgorithmChoice::PathFinding
