@@ -1,4 +1,4 @@
-use crate::logger::LogType::Major;
+use crate::logger::LogType::{Minor};
 use chrono::Local;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -12,7 +12,7 @@ pub enum LogType {
     Mandatory,
 }
 
-const LOG_LEVEL: LogType = Major;
+const LOG_LEVEL: LogType = Minor;
 
 pub fn send_log(channel_sender: &Sender<String>, tag: &str, message: &str, log_type: LogType) {
     let now = Local::now();
@@ -31,7 +31,7 @@ fn store_log_to_file(tag: &str, message: &str, now: chrono::DateTime<Local>) {
     let date_str = now.format("%Y%m%d").to_string();
 
     let tag = tag.replace(" ", "_");
-    let filename = format!("../logs/{}_{}_{}.log", tag, date_str, 1);
+    let filename = format!("./logs/{}_{}_{}.log", tag, date_str, 1);
 
     let mut file = OpenOptions::new()
         .create(true)
