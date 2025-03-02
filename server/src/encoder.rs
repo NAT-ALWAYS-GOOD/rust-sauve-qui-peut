@@ -1,3 +1,26 @@
+//! Module permettant d'encoder les données radar en format chelou64.
+
+/// Encode un tableau d'octets en utilisant l'encodage "chelou64".
+///
+/// Cet encodage transforme chaque bloc de 3 octets (24 bits) en 4 caractères de 6 bits.
+/// Le jeu de caractères utilisé est :
+/// "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/".
+///
+/// # Arguments
+///
+/// * `input` - Un slice d'octets à encoder.
+///
+/// # Retour
+///
+/// Une `String` contenant la représentation encodée en chelou64.
+///
+/// # Exemple
+///
+/// ```rust
+/// let data = vec![32, 70, 18, 128, 152, 40, 240, 240, 15, 15, 240];
+/// let encoded = encode_chelou64(&data);
+/// assert_eq!(encoded, "ieysGjGO8papd/a");
+/// ```
 pub fn encode_chelou64(input: &[u8]) -> String {
     let charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/";
     let mut output = String::new();
@@ -35,6 +58,52 @@ pub fn encode_chelou64(input: &[u8]) -> String {
     output
 }
 
+/// Encode une grille interne 7x7 en données radar.
+///
+/// La grille interne est représentée par un tableau 7x7 (Vec<Vec<u8>>).
+/// La fonction procède en trois étapes :
+///
+/// 1. **Passages horizontaux** :
+///    - Utilise les coordonnées pré-définies `hcoords` (12 positions) pour extraire 2 bits par cellule.
+///    - Ces 12 passages sont assemblés en 24 bits, puis convertis en 3 octets en format little-endian.
+///
+/// 2. **Passages verticaux** :
+///    - Utilise les coordonnées `vcoords` (12 positions) pour extraire 2 bits par cellule.
+///    - Ces 12 passages donnent également 24 bits convertis en 3 octets en format little-endian.
+///
+/// 3. **Cellules** :
+///    - Utilise les coordonnées `ccoords` (9 positions) pour extraire une valeur de cellule (4 bits).
+///    - Les 9 valeurs sont complétées par un dixième nibble (0) et regroupées en 5 octets.
+///
+/// Le vecteur final contient 11 octets : 3 pour les passages horizontaux, 3 pour les passages verticaux et 5 pour les cellules.
+///
+/// # Arguments
+///
+/// * `internal_grid` - Une référence à une grille interne 7x7 (Vec<Vec<u8>>).
+///
+/// # Retour
+///
+/// Un vecteur de 11 octets représentant les données radar encodées.
+///
+/// # Panique
+///
+/// La fonction panique si la grille n'est pas exactement de taille 7x7.
+///
+/// # Exemple
+///
+/// ```rust
+/// let internal_grid = vec![
+///     vec![2, 0, 2, 1, 2, 0, 2],
+///     vec![0, 0, 2, 1, 2, 0, 0],
+///     vec![2, 2, 2, 1, 2, 0, 2],
+///     vec![2, 1, 1, 1, 2, 0, 0],
+///     vec![2, 1, 2, 2, 2, 0, 2],
+///     vec![2, 1, 0, 0, 0, 0, 0],
+///     vec![2, 2, 2, 0, 2, 0, 2]
+/// ];
+/// let radar_data = encode_radar_data(&internal_grid);
+/// // radar_data devrait être : [32, 70, 18, 128, 152, 40, 240, 240, 15, 15, 240]
+/// ```
 pub fn encode_radar_data(internal_grid: &[Vec<u8>]) -> Vec<u8> {
     if internal_grid.len() != 7 || internal_grid.iter().any(|row| row.len() != 7) {
         panic!("Grille invalide : la grille doit être 7x7");

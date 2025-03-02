@@ -1,3 +1,5 @@
+//! Module principal du jeu. Ce module gère l'enregistrement des joueurs, la communication
+//! avec le serveur et la logique de déplacement via différents algorithmes.
 mod decoder;
 mod logger;
 mod maze;
@@ -22,13 +24,27 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+/// Structure permettant de sélectionner un algorithme de jeu.
 #[derive(Debug)]
 enum AlgorithmChoice {
     Random,
     PathFinding,
 }
 
+/// Trait représentant un algorithme de jeu.
+///
+/// Ce trait définit une méthode `play_game` qui doit être implémentée pour gérer la logique de
+/// jeu d'un joueur, incluant la communication avec le serveur et la mise à jour de l'état du joueur.
 trait Algorithm: Send + Sync {
+    /// Démarre le jeu pour un joueur.
+    ///
+    /// # Arguments
+    ///
+    /// * `channel_sender` - Canal pour envoyer des logs d'activité.
+    /// * `player_name` - Nom du joueur.
+    /// * `tcp_stream` - Flux TCP utilisé pour communiquer avec le serveur.
+    /// * `shared_numbers` - Ressource partagée entre threads, utilisée par le challenge SumModulo.
+    /// * `thread_index` - Indice du thread.
     fn play_game(
         &self,
         channel_sender: Sender<String>,
@@ -39,6 +55,7 @@ trait Algorithm: Send + Sync {
     );
 }
 
+/// Algorithme de jeu aléatoire.
 struct RandomAlgorithm;
 impl Algorithm for RandomAlgorithm {
     fn play_game(
@@ -101,6 +118,7 @@ impl Algorithm for RandomAlgorithm {
     }
 }
 
+/// Algorithme de jeu basé sur un parcours de labyrinthe.
 struct PathFindingAlgorithm;
 impl Algorithm for PathFindingAlgorithm {
     fn play_game(
@@ -320,6 +338,29 @@ impl Algorithm for PathFindingAlgorithm {
     }
 }
 
+/// Tente d'enregistrer l'équipe auprès du serveur.
+///
+/// Établit une connexion TCP avec le serveur à l'adresse fournie, envoie une requête
+/// d'enregistrement et attend la réponse pour récupérer le token et le nombre de joueurs attendus.
+///
+/// # Arguments
+///
+/// * `channel_sender` - Canal pour envoyer des logs d'activité.
+/// * `server_address` - Adresse du serveur (ex: `"localhost:8778"`).
+///
+/// # Retour
+///
+/// * `Some((registration_token, expected_players))` si l'enregistrement réussit.
+/// * `None` en cas d'erreur ou de réponse inattendue.
+///
+/// # Exemple
+///
+/// ```rust
+/// let result = register_team(&channel_sender, "localhost:8778");
+/// if let Some((token, players)) = result {
+///     println!("Enregistrement réussi : {} joueurs attendus, token : {}", players, token);
+/// }
+/// ```
 fn register_team(channel_sender: &Sender<String>, server_address: &str) -> Option<(String, u8)> {
     send_log(
         channel_sender,
@@ -406,6 +447,30 @@ fn register_team(channel_sender: &Sender<String>, server_address: &str) -> Optio
     }
 }
 
+/// Tente d'enregistrer un joueur auprès du serveur.
+///
+/// Envoie une requête d'enregistrement pour un joueur donné et attend la réponse pour
+/// confirmer l'inscription.
+///
+/// # Arguments
+///
+/// * `channel_sender` - Canal pour envoyer des logs d'activité.
+/// * `player_name` - Nom du joueur.
+/// * `reg_token` - Token d'enregistrement obtenu lors de l'inscription de l'équipe.
+/// * `tcp_stream` - Flux TCP pour la communication avec le serveur.
+///
+/// # Retour
+///
+/// * `true` si l'enregistrement du joueur est réussi.
+/// * `false` en cas d'erreur ou de message inattendu du serveur.
+///
+/// # Exemple
+///
+/// ```rust
+/// if register_player(&channel_sender, "Joueur 1", "token123", &mut tcp_stream) {
+///     println!("Joueur enregistré !");
+/// }
+/// ```
 fn register_player(
     channel_sender: &Sender<String>,
     player_name: &str,
@@ -463,6 +528,38 @@ fn register_player(
     }
 }
 
+/// Lance un thread dédié à un joueur.
+///
+/// Cette fonction établit une connexion avec le serveur et lance un thread qui exécute
+/// la logique de jeu (via l'algorithme fourni) pour le joueur spécifié.
+///
+/// # Arguments
+///
+/// * `server_address` - Adresse du serveur sous forme de chaîne.
+/// * `player` - Nom du joueur.
+/// * `channel_sender_cloned` - Canal cloné pour les logs.
+/// * `reg_token_cloned` - Token d'enregistrement cloné.
+/// * `shared_numbers` - Ressource partagée (Arc<Mutex<Vec<u64>>>) utilisée pour le challenge SumModulo.
+/// * `thread_index` - Indice du thread (permet de gérer l'accès à `shared_numbers`).
+/// * `algorithm` - Instance de l'algorithme (implémentant le trait `Algorithm`) à utiliser pour le jeu.
+///
+/// # Retour
+///
+/// Retourne un `JoinHandle<()>` représentant le thread lancé.
+///
+/// # Exemple
+///
+/// ```rust
+/// let handle = launch_player_thread(
+///     "localhost:8778".to_string(),
+///     "Joueur 1".to_string(),
+///     channel_sender.clone(),
+///     "token123".to_string(),
+///     Arc::clone(&shared_numbers),
+///     0,
+///     algorithm.clone(),
+/// );
+/// ```
 fn launch_player_thread(
     server_address: String,
     player: String,
@@ -518,6 +615,33 @@ fn launch_player_thread(
         .unwrap()
 }
 
+/// Gère l'indice reçu du serveur.
+///
+/// En fonction du type d'indice, effectue les mises à jour appropriées
+/// (par exemple, en mettant à jour les nombres partagés ou en stockant un angle d'indication).
+///
+/// # Arguments
+///
+/// * `hint` - L'indice reçu (de type `common::Hint`).
+/// * `channel_sender` - Canal pour envoyer les logs.
+/// * `player_name` - Nom du joueur.
+/// * `shared_numbers` - Ressource partagée pour les nombres (utilisée dans le challenge SumModulo).
+/// * `thread_index` - Indice du thread pour la mise à jour de `shared_numbers`.
+/// * `angle_hints` - Vecteur dans lequel stocker les indications d'angle (le cas échéant).
+/// * `player` - Option contenant une référence au joueur (pour récupérer la position et l'orientation).
+///
+/// # Retour
+///
+/// Retourne un booléen indiquant si le gameloop doit continuer.
+///
+/// # Exemple
+///
+/// ```rust
+/// let continuer = handle_hint(hint, &channel_sender, "Joueur 1", &shared_numbers, 0, &mut angle_hints, Some(&player));
+/// if continuer {
+///     // Poursuite de la gameloop
+/// }
+/// ```
 fn handle_hint(
     hint: common::Hint,
     channel_sender: &Sender<String>,
@@ -578,6 +702,32 @@ fn handle_hint(
     }
 }
 
+/// Gère les erreurs d'action renvoyées par le serveur.
+///
+/// Selon l'erreur reçue, la fonction annule l'action précédente si nécessaire,
+/// et retourne un booléen indiquant si l'erreur doit être considérée comme fatale.
+///
+/// # Arguments
+///
+/// * `action_error` - L'erreur d'action reçue (de type `common::ActionError`).
+/// * `channel_sender` - Canal pour envoyer les logs.
+/// * `player_name` - Nom du joueur.
+/// * `last_action` - Référence mutable à la dernière action effectuée.
+/// * `player` - Référence mutable au joueur.
+/// * `last_player_coords` - Référence mutable aux dernières coordonnées du joueur.
+/// * `last_player_orientation` - Référence mutable à la dernière orientation du joueur.
+///
+/// # Retour
+///
+/// Retourne `true` si l'erreur est fatale et que le gameloop doit être interrompu, `false` sinon.
+///
+/// # Exemple
+///
+/// ```rust
+/// if handle_action_error(error, &channel_sender, "Joueur 1", &mut last_action, &mut player, &mut last_coords, &mut last_orientation) {
+///     break; // Sortie du gameloop en cas d'erreur fatale
+/// }
+/// ```
 fn handle_action_error(
     action_error: common::ActionError,
     channel_sender: &Sender<String>,
@@ -663,6 +813,24 @@ fn handle_action_error(
     false
 }
 
+/// Annule la dernière action effectuée et rétablit l'état précédent du joueur.
+///
+/// Rétablit les coordonnées et l'orientation du joueur à l'état antérieur à la dernière action.
+///
+/// # Arguments
+///
+/// * `channel_sender` - Canal pour envoyer les logs.
+/// * `player_name` - Nom du joueur.
+/// * `last_action` - Référence à la dernière action effectuée.
+/// * `player` - Référence mutable au joueur.
+/// * `last_player_coords` - Référence aux dernières coordonnées sauvegardées du joueur.
+/// * `last_player_orientation` - Référence mutable à la dernière orientation sauvegardée du joueur.
+///
+/// # Exemple
+///
+/// ```rust
+/// cancel_action(&channel_sender, "Joueur 1", &last_action, &mut player, &last_coords, &mut last_orientation);
+/// ```
 fn cancel_action(
     channel_sender: &Sender<String>,
     player_name: &str,
@@ -687,6 +855,24 @@ fn cancel_action(
     );
 }
 
+/// Gère le challenge envoyé par le serveur.
+///
+/// En fonction du type de challenge (par exemple, un challenge de SumModulo ou un SOS),
+/// effectue les actions appropriées, telles que le calcul de la somme ou l'envoi d'une réponse.
+///
+/// # Arguments
+///
+/// * `challenge` - Le challenge reçu (de type `common::Challenge`).
+/// * `channel_sender` - Canal pour envoyer les logs.
+/// * `player_name` - Nom du joueur.
+/// * `tcp_stream` - Flux TCP pour communiquer avec le serveur.
+/// * `shared_numbers` - Ressource partagée pour les nombres utilisée dans le challenge SumModulo.
+///
+/// # Exemple
+///
+/// ```rust
+/// handle_challenge(challenge, &channel_sender, "Joueur 1", &mut tcp_stream, &shared_numbers);
+/// ```
 fn handle_challenge(
     challenge: common::Challenge,
     channel_sender: &Sender<String>,
@@ -745,6 +931,22 @@ fn handle_challenge(
     }
 }
 
+/// Point d'entrée de l'application.
+///
+/// Effectue les actions suivantes :
+/// - Établit une connexion avec le serveur.
+/// - Enregistre l'équipe et récupère le token d'enregistrement ainsi que le nombre de joueurs attendus.
+/// - Crée les threads pour chaque joueur en fonction du nombre attendu.
+/// - Affiche les logs dans le thread principal.
+/// - Attend la fin de tous les threads lancés.
+///
+/// # Exemple
+///
+/// ```rust
+/// fn main() {
+///     // Lancement de l'application
+/// }
+/// ```
 fn main() {
     let (channel_sender, channel_receiver) = mpsc::channel();
 

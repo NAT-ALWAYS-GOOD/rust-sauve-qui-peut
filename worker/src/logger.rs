@@ -1,9 +1,15 @@
+//! Module gérant les logs de l'application.
+
 use crate::logger::LogType::{Minor};
 use chrono::Local;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::sync::mpsc::Sender;
 
+/// Enumération des niveaux de log disponibles.
+///
+/// Les niveaux de log définissent la priorité d'un message.
+/// Seuls les messages dont le niveau est supérieur ou égal à `LOG_LEVEL` seront envoyés via le canal.
 pub enum LogType {
     Insignificant,
     Minor,
@@ -12,8 +18,27 @@ pub enum LogType {
     Mandatory,
 }
 
+/// Niveau de log minimal pour l'envoi sur le canal.
+/// Seuls les logs ayant un niveau supérieur ou égal à ce seuil seront affichés sur le canal.
 const LOG_LEVEL: LogType = Minor;
 
+
+/// Envoie un message de log via un canal et le stocke dans un fichier.
+///
+/// Le message est préfixé d'un timestamp et d'un tag pour faciliter le suivi.
+/// Si le niveau du log est supérieur ou égal à `LOG_LEVEL`, le message est envoyé via le canal fourni.
+/// Dans tous les cas, le message est également écrit dans un fichier de log.
+///
+/// # Arguments
+///
+/// * `channel_sender` - Le canal utilisé pour envoyer les logs.
+/// * `tag` - Une étiquette identifiant la source du log.
+/// * `message` - Le contenu du message de log.
+/// * `log_type` - Le niveau de priorité du log.
+///
+/// # Panique
+///
+/// La fonction panique si l'envoi sur le canal échoue.
 pub fn send_log(channel_sender: &Sender<String>, tag: &str, message: &str, log_type: LogType) {
     let now = Local::now();
     let timestamp_str = now.format("%Y-%m-%d %H:%M:%S").to_string();
@@ -27,6 +52,16 @@ pub fn send_log(channel_sender: &Sender<String>, tag: &str, message: &str, log_t
     store_log_to_file(tag, message, now);
 }
 
+/// Stocke un message de log dans un fichier.
+///
+/// Le fichier est créé ou ouvert dans le dossier `./logs` et porte un nom formé du tag,
+/// de la date et d'un numéro de log. Le message est précédé d'un timestamp.
+///
+/// # Arguments
+///
+/// * `tag` - L'étiquette identifiant la source du log (les espaces sont remplacés par des underscores).
+/// * `message` - Le message à stocker.
+/// * `now` - La date et l'heure actuelles, utilisée pour le timestamp et la création du nom de fichier.
 fn store_log_to_file(tag: &str, message: &str, now: chrono::DateTime<Local>) {
     let date_str = now.format("%Y%m%d").to_string();
 

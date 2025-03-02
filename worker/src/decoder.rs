@@ -1,3 +1,28 @@
+//! Module permettant de décoder les données radar encodées en chelou64.
+
+/// Décode une chaîne encodée en chelou64, qui utilise un encodage 6 bits par caractère.
+///
+/// La fonction vérifie d'abord que la longueur de la chaîne n'est pas de la forme 4n+1.
+/// Chaque caractère doit être dans l'intervalle `[a-z]`, `[A-Z]`, `[0-9]`, ou être '+' ou '/'.
+/// Si un caractère non autorisé est rencontré, une erreur est retournée.
+///
+/// # Arguments
+///
+/// * `input` - La chaîne encodée en chelou64.
+/// * `_debug` - Booléen de débogage.
+///
+/// # Retour
+///
+/// Retourne un `Result` contenant :
+/// - `Ok(Vec<u8>)` avec les octets décodés, ou
+/// - `Err(String)` si la chaîne est invalide ou contient un caractère interdit.
+///
+/// # Exemple
+///
+/// ```rust
+/// let input = "ieysGjGO8papd/a";
+/// let decoded = decode_chelou64(input, false).unwrap();
+/// ```
 pub fn decode_chelou64(input: &str, _debug: bool) -> Result<Vec<u8>, String> {
     let len = input.len();
 
@@ -5,6 +30,9 @@ pub fn decode_chelou64(input: &str, _debug: bool) -> Result<Vec<u8>, String> {
         return Err("Taille invalide (4n+1) pour cet encodage 6 bits/char".to_string());
     }
 
+    /// Décode un caractère en sa valeur sur 6 bits.
+    ///
+    /// Retourne `Some(u8)` si le caractère est autorisé, sinon `None`.
     fn decode_6bits_char(c: char) -> Option<u8> {
         match c {
             'a'..='z' => Some(c as u8 - b'a'),        // 0..25
@@ -59,12 +87,44 @@ pub fn decode_chelou64(input: &str, _debug: bool) -> Result<Vec<u8>, String> {
     Ok(output)
 }
 
+/// Ajoute un message à la sortie de débogage si le mode débogage est activé.
+///
+/// # Arguments
+///
+/// * `output` - Chaîne mutable dans laquelle le message sera ajouté.
+/// * `debug` - Indique si le débogage est activé.
+/// * `message` - Le message à ajouter.
 pub fn push_str_debug(output: &mut String, debug: bool, message: &str) {
     if debug {
         output.push_str(message);
     }
 }
 
+/// Décode les données radar à partir d'un tableau de 11 octets.
+///
+/// La fonction traite un slice de 11 octets, extrait des informations brutes,
+/// décode des passages horizontaux et verticaux ainsi que des cellules, et construit
+/// une grille interne 7x7 affichée en mode débogage.
+///
+/// # Arguments
+///
+/// * `decoded` - Un slice d'octets (doit contenir exactement 11 octets) représentant les données radar.
+/// * `debug` - Booléen indiquant si des informations supplémentaires de débogage doivent être affichées.
+///
+/// # Retour
+///
+/// Retourne un `Result` contenant un tuple :
+/// - Un `String` avec les logs et affichages de débogage.
+/// - Une grille interne représentée par un `Vec<Vec<u8>>`.
+///
+/// En cas d'erreur (par exemple, longueur incorrecte), retourne un `Err(String)`.
+///
+/// # Exemple
+///
+/// ```rust
+/// let data: Vec<u8> = vec![32, 70, 18, 128, 152, 40, 240, 240, 15, 15, 240];
+/// let (log, grid) = decode_radar_data(&data, false).unwrap();
+/// ```
 pub fn decode_radar_data(decoded: &[u8], debug: bool) -> Result<(String, Vec<Vec<u8>>), String> {
     if decoded.len() != 11 {
         return Err(format!(
@@ -249,6 +309,27 @@ pub fn decode_radar_data(decoded: &[u8], debug: bool) -> Result<(String, Vec<Vec
     Ok((output, internal_grid))
 }
 
+/// Extrait et décode les cellules à partir d'un tableau de 5 octets.
+///
+/// La fonction extrait 10 nibbles (4 bits) à partir des octets fournis,
+/// puis retourne un vecteur contenant les 9 premiers nibbles représentant les cellules.
+///
+/// # Arguments
+///
+/// * `output` - Chaîne mutable pour accumuler les messages de débogage.
+/// * `cell_bytes` - Tableau de 5 octets contenant les données des cellules.
+/// * `debug` - Indique si le débogage est activé.
+///
+/// # Retour
+///
+/// Retourne un `Vec<u8>` contenant les 9 premiers nibbles décodés.
+///
+/// # Exemple
+///
+/// ```rust
+/// let cell_bytes = [240, 240, 15, 15, 240];
+/// let cells = handle_cells(&mut String::new(), cell_bytes, false);
+/// ```
 pub fn handle_cells(output: &mut String, cell_bytes: [u8; 5], debug: bool) -> Vec<u8> {
     let mut nibbles = Vec::with_capacity(10);
     for byte in cell_bytes {
@@ -301,6 +382,25 @@ pub fn handle_cells(output: &mut String, cell_bytes: [u8; 5], debug: bool) -> Ve
     cells.to_vec()
 }
 
+/// Décode le symbole d'une cellule à partir d'un nibble.
+///
+/// La fonction interprète le nibble pour retourner une représentation symbolique de la cellule.
+/// Par exemple, un nibble égal à `0b1111` est interprété comme une cellule non définie (`"#"`).
+///
+/// # Arguments
+///
+/// * `nibble` - Le nibble à décoder.
+///
+/// # Retour
+///
+/// Retourne une `String` contenant le symbole associé à la cellule.
+///
+/// # Exemple
+///
+/// ```rust
+/// let symbole = decode_cell_symbol(0b1111);
+/// assert_eq!(symbole, "#");
+/// ```
 pub fn decode_cell_symbol(nibble: u8) -> String {
     if nibble == 0b1111 {
         return "#".to_string();
@@ -331,6 +431,24 @@ pub fn decode_cell_symbol(nibble: u8) -> String {
     }
 }
 
+/// Décode les informations d'une cellule à partir d'un nibble et retourne une description textuelle.
+///
+/// La fonction combine la "nature" et l'"entité" décodées du nibble pour générer une
+/// description lisible. Si le nibble vaut `0b1111`, la cellule est considérée comme indéfinie.
+///
+/// # Arguments
+///
+/// * `nibble` - Le nibble à décoder.
+///
+/// # Retour
+///
+/// Retourne une `String` décrivant la cellule (par exemple, `"Indice / Allié"`).
+///
+/// # Exemple
+///
+/// ```rust
+/// let info = decode_cell_info(0b0001);
+/// ```
 pub fn decode_cell_info(nibble: u8) -> String {
     if nibble == 0b1111 {
         return "Undefined".to_string();
@@ -350,6 +468,25 @@ pub fn decode_cell_info(nibble: u8) -> String {
     }
 }
 
+/// Décode la nature et l'entité d'une cellule à partir d'un nibble.
+///
+/// La fonction extrait les 2 bits correspondant à la nature et les 2 bits correspondant à l'entité,
+/// puis retourne un tuple contenant deux chaînes décrivant respectivement la nature et l'entité.
+/// Par exemple, un nibble particulier peut être décodé en `("Indice", "Allié")`.
+///
+/// # Arguments
+///
+/// * `nibble` - Le nibble à décoder.
+///
+/// # Retour
+///
+/// Retourne un tuple `(String, String)` où le premier élément décrit la nature et le second l'entité.
+///
+/// # Exemple
+///
+/// ```rust
+/// let (nature, entite) = decode_nature_et_entite(0b0101);
+/// ```
 pub fn decode_nature_et_entite(nibble: u8) -> (String, String) {
     let nature = (nibble & 0b1100) >> 2;
     let entite = nibble & 0b0011;

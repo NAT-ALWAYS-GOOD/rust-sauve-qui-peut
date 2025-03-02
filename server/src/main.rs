@@ -1,3 +1,5 @@
+//! Module principal du serveur. Ce module gère l'enregistrement des équipes et l'inscription des joueurs,
+//! et leur délivre des vues radar encodées en chelou64.
 use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -6,6 +8,14 @@ use common::{receive_encoded_message, send_encoded_message, ClientRequest, Regis
 
 mod encoder;
 
+/// Renvoie un ensemble prédéfini d'étapes sous forme de grilles 7x7.
+///
+/// Chaque étape est représentée par un vecteur de vecteurs d'octets, où chaque nombre
+/// correspond à un type d'élément (par exemple, 2 pour mur, 0 pour inconnu, 10 pour objectif, 1 pour passage libre, etc.).
+///
+/// # Retour
+///
+/// Un vecteur contenant plusieurs grilles (étapes) pour simuler des vues radar.
 fn get_steps() -> Vec<Vec<Vec<u8>>> {
     vec![
         vec![
@@ -38,6 +48,10 @@ fn get_steps() -> Vec<Vec<Vec<u8>>> {
     ]
 }
 
+/// Structure représentant l'état d'enregistrement d'une équipe.
+///
+/// Contient le token d'enregistrement, le nombre de joueurs attendus, ainsi que
+/// la liste des joueurs déjà enregistrés.
 #[derive(Debug)]
 struct TeamRegistration {
     registration_token: String,
@@ -46,6 +60,16 @@ struct TeamRegistration {
 }
 
 impl TeamRegistration {
+    /// Crée une nouvelle instance de `TeamRegistration`.
+    ///
+    /// # Arguments
+    ///
+    /// * `token` - Le token d'enregistrement attribué à l'équipe.
+    /// * `expected_players` - Le nombre de joueurs attendus pour l'équipe.
+    ///
+    /// # Retour
+    ///
+    /// Une instance initialisée de `TeamRegistration` avec une liste vide de joueurs.
     fn new(token: String, expected_players: u8) -> Self {
         Self {
             registration_token: token,
@@ -55,6 +79,18 @@ impl TeamRegistration {
     }
 }
 
+/// Gère la connexion d'un client.
+///
+/// Cette fonction lit la requête envoyée par le client, qui peut être soit une demande
+/// d'enregistrement d'équipe, soit une demande d'inscription d'un joueur. Selon la requête,
+/// la fonction envoie la réponse appropriée et, dans le cas d'une inscription réussie,
+/// démarre un thread dédié pour gérer la communication ultérieure avec le joueur.
+///
+/// # Arguments
+///
+/// * `stream` - Le flux TCP de communication avec le client.
+/// * `team_state` - État partagé (protégé par un Mutex) contenant les informations d'enregistrement de l'équipe.
+/// * `chelou64steps` - Ensemble de vues radar encodées en chelou64, partagé entre les threads.
 fn handle_client(
     mut stream: TcpStream,
     team_state: Arc<Mutex<Option<TeamRegistration>>>,
@@ -187,6 +223,12 @@ fn handle_client(
     }
 }
 
+/// Point d'entrée du serveur.
+///
+/// La fonction effectue les opérations suivantes :
+/// - Génère les différentes étapes radar en encodant des grilles via le module `encoder`.
+/// - Lie le serveur à l'adresse "127.0.0.1:8778" et attend les connexions entrantes.
+/// - Pour chaque connexion, un thread est lancé afin de traiter la requête via la fonction `handle_client`.
 fn main() {
     let mut chelou64steps_vec = Vec::new();
     let steps = get_steps();

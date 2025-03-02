@@ -1,3 +1,5 @@
+//! Module de résolution du labyrinthe.
+
 use crate::decoder::{decode_chelou64, decode_radar_data};
 use crate::logger::send_log;
 use crate::logger::LogType::{Insignificant, Mandatory, Medium, Minor};
@@ -8,13 +10,38 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpStream;
 use std::sync::mpsc::Sender;
 
+/// Représente un indice d'angle associé à une coordonnée et une orientation.
+///
+/// Cette structure est utilisée pour stocker un indice relatif à une direction,
+/// par exemple pour aider le joueur à déterminer vers quelle direction se diriger.
 #[derive(Debug)]
 pub struct AngleHint {
+    /// Coordonnée locale où l'indice a été relevé.
     pub coord: Coord,
+    /// Orientation de l'élément ayant généré l'indice.
     pub orientation: Orientation,
+    /// Valeur de l'angle indiquant la direction.
     pub angle: f32,
 }
 
+/// Reçoit une vue radar envoyée par le serveur et met à jour l'état du joueur et du labyrinthe.
+///
+/// La fonction effectue les opérations suivantes :
+/// - Log la vue radar reçue.
+/// - Décode la chaîne encodée en utilisant `decode_chelou64`.
+/// - Traite les données décodées avec `process_radar_data` pour mettre à jour le labyrinthe
+///   et éventuellement déterminer la position de l'objectif.
+/// - Affiche la position globale du joueur et le labyrinthe actuel via des logs.
+///
+/// # Arguments
+///
+/// * `channel_sender` - Canal pour envoyer les logs.
+/// * `player_name` - Nom du joueur concerné.
+/// * `debug` - Active ou désactive le mode débogage.
+/// * `player` - Référence mutable au joueur dont la position et l'orientation seront utilisées.
+/// * `maze` - Référence mutable au labyrinthe à mettre à jour.
+/// * `goal_cell` - Référence mutable sur une option contenant la coordonnée de l'objectif, si trouvé.
+/// * `radar_view` - Chaîne représentant la vue radar encodée.
 pub fn receive_radar_view(
     channel_sender: &Sender<String>,
     player_name: &String,
@@ -53,6 +80,23 @@ pub fn receive_radar_view(
     // send_log(&channel_sender, &*player_tag, &format!("Maze actuel : {:?}", maze.cells));
 }
 
+/// Traite les données radar décodées et met à jour le labyrinthe ainsi que la position de l'objectif.
+///
+/// La fonction réalise les étapes suivantes :
+/// - Décode les données radar en texte et en grille via `decode_radar_data`.
+/// - Parcourt la grille 7x7 pour déterminer les types de cellules et convertit les coordonnées locales en globales.
+/// - Met à jour le labyrinthe en fonction du type de cellule (par exemple, détecte et logge la présence d'un objectif, d'un allié ou d'un ennemi).
+/// - Affiche la grille numérique via `maze.display_numbers`.
+///
+/// # Arguments
+///
+/// * `data` - Vecteur d'octets représentant les données radar décodées.
+/// * `debug` - Active ou désactive le mode débogage.
+/// * `channel_sender` - Canal pour envoyer les logs.
+/// * `player_tag` - Tag ou nom du joueur utilisé dans les logs.
+/// * `player` - Référence vers le joueur (pour obtenir sa position et orientation).
+/// * `maze` - Référence mutable au labyrinthe à mettre à jour.
+/// * `goal_cell` - Référence mutable sur une option contenant la coordonnée de l'objectif.
 pub fn process_radar_data(
     data: Vec<u8>,
     debug: bool,
@@ -145,6 +189,22 @@ pub fn process_radar_data(
     }
 }
 
+/// Recherche la frontière la plus proche à partir d'une position donnée dans le labyrinthe.
+///
+/// La fonction utilise une recherche en largeur (BFS) pour explorer les cellules accessibles
+/// (de type `Free` ou `Ally`) et détecter la première cellule de type `Unknown` adjacente à l'un d'entre elles.
+///
+/// # Arguments
+///
+/// * `maze` - Référence au labyrinthe.
+/// * `start` - Coordonnée de départ.
+/// * `channel_sender` - Canal pour envoyer les logs.
+/// * `player_name` - Tag ou nom du joueur utilisé dans les logs.
+///
+/// # Retour
+///
+/// Retourne une `Option<Coord>` contenant la coordonnée de la frontière trouvée, ou `None` si aucune
+/// frontière n'a été détectée.
 pub fn find_nearest_frontier(
     maze: &Maze,
     start: Coord,
@@ -233,6 +293,19 @@ pub fn find_nearest_frontier(
     None
 }
 
+/// Calcule la direction relative à adopter pour passer d'une orientation actuelle à une orientation souhaitée.
+///
+/// Par exemple, si le joueur est orienté vers le Nord et souhaite aller vers l'Est, la fonction
+/// retournera `RelativeDirection::Right`.
+///
+/// # Arguments
+///
+/// * `player_orientation` - Orientation actuelle du joueur.
+/// * `wanted_direction` - Orientation absolue souhaitée.
+///
+/// # Retour
+///
+/// Retourne une `RelativeDirection` indiquant comment tourner par rapport à l'orientation actuelle.
 pub fn compute_direction(
     player_orientation: Orientation,
     wanted_direction: Orientation,
@@ -268,6 +341,16 @@ pub fn compute_direction(
     }
 }
 
+/// Déplace le joueur dans une direction aléatoire.
+///
+/// La fonction sélectionne une direction aléatoire parmi les quatre (Front, Right, Back, Left),
+/// crée une action de déplacement et l'envoie au serveur via le flux TCP.
+///
+/// # Arguments
+///
+/// * `player_tag` - Tag ou nom du joueur utilisé dans les logs.
+/// * `channel_sender` - Canal pour envoyer les logs.
+/// * `tcp_stream` - Flux TCP utilisé pour communiquer avec le serveur.
 pub fn move_to_next_step_random(
     player_tag: &str,
     channel_sender: &Sender<String>,
@@ -299,6 +382,23 @@ pub fn move_to_next_step_random(
     send_encoded_message(tcp_stream, json_message);
 }
 
+/// Déplace le joueur vers une cellule cible et met à jour son état.
+///
+/// La fonction effectue les opérations suivantes :
+/// - Calcule le vecteur de déplacement entre la position actuelle du joueur et la cellule cible.
+/// - Détermine la direction relative à adopter et met à jour l'orientation du joueur.
+/// - Envoie une action de déplacement au serveur et met à jour la position et l'action précédente.
+///
+/// # Arguments
+///
+/// * `player` - Référence mutable au joueur à déplacer.
+/// * `player_tag` - Tag ou nom du joueur utilisé dans les logs.
+/// * `next_step` - Coordonnée de la prochaine cellule vers laquelle déplacer le joueur.
+/// * `channel_sender` - Canal pour envoyer les logs.
+/// * `tcp_stream` - Flux TCP utilisé pour communiquer avec le serveur.
+/// * `last_action` - Référence mutable vers la dernière action effectuée.
+/// * `last_player_coords` - Référence mutable vers la dernière position connue du joueur.
+/// * `last_player_orientation` - Référence mutable vers la dernière orientation connue du joueur.
 pub fn move_to_next_step(
     player: &mut Player,
     player_tag: &str,
@@ -484,6 +584,25 @@ pub fn move_to_next_step(
     // player.coords = Coord { x: 24, y: 10 }
 }
 
+/// Recherche un chemin depuis une position de départ vers un objectif dans le labyrinthe.
+///
+/// La fonction utilise une recherche en largeur (BFS) pour explorer le labyrinthe et
+/// reconstruire le chemin à partir d'une table de parenté. Une fois le chemin trouvé,
+/// il est filtré pour ne conserver que les coordonnées paires (indiquant les passages centraux)
+/// et le point de départ est retiré.
+///
+/// # Arguments
+///
+/// * `start` - Coordonnée de départ.
+/// * `goal` - Coordonnée de l'objectif.
+/// * `maze` - Référence au labyrinthe.
+/// * `channel_sender` - Canal pour envoyer les logs.
+/// * `player_tag` - Tag ou nom du joueur utilisé dans les logs.
+///
+/// # Retour
+///
+/// Retourne un vecteur de `Coord` représentant le chemin à suivre vers l'objectif.
+/// Si aucun chemin n'est trouvé, un vecteur vide est retourné.
 pub fn find_path_to_goal(
     start: Coord,
     goal: Coord,
@@ -596,6 +715,22 @@ pub fn find_path_to_goal(
     Vec::new()
 }
 
+/// Convertit des coordonnées locales en coordonnées globales en fonction de la position et de l'orientation du joueur.
+///
+/// La fonction adapte les coordonnées locales (relatives au joueur) à la position globale du joueur
+/// en tenant compte de son orientation actuelle. Elle log également le calcul effectué.
+///
+/// # Arguments
+///
+/// * `channel_sender` - Canal pour envoyer les logs.
+/// * `player_tag` - Tag ou nom du joueur utilisé dans les logs.
+/// * `player` - Référence au joueur dont la position et l'orientation servent de base de calcul.
+/// * `x` - Décalage horizontal local.
+/// * `y` - Décalage vertical local.
+///
+/// # Retour
+///
+/// Retourne un tuple `(i16, i16)` représentant les coordonnées globales calculées.
 pub fn local_to_global(
     channel_sender: Sender<String>,
     player_tag: &str,
